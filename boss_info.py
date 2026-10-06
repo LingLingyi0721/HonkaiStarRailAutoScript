@@ -53,35 +53,85 @@ AFFIX_SWIPE_Y = 655
 log = setup_logging("boss_info")
 
 
-# ── 词条清洗 ───────────────────────────────────────────────────────
+# ── 词条词库匹配 ───────────────────────────────────────────────────
 
-# 已知的词条前缀噪音模式（游戏图标被OCR误识别）
-_AFFIX_NOISE_PREFIXES = [
-    "m侵蚀·", "m侵蚀",
-]
+_AFFIX_DICT_PATH = Path(__file__).resolve().parent / "assets" / "affix_dict.json"
+_affix_dict_cache: dict | None = None
 
-def clean_affix_text(text: str) -> str:
-    """清洗词条文字，去掉图标误识别产生的前缀噪音。
 
-    规则：
-    1. "侵蚀·"是特殊词条类别前缀，与词条名称一体，保留不动
-    2. 去掉非中文前缀字符（①、m、?等噪音）
-    3. 不做截取——词条名称长度不固定，截取会误删真实文字
-       （如"必灼热轰炸"截取为"灼热轰炸"是错误的）
+def _load_affix_dict() -> dict:
+    """懒加载词条词库。"""
+    global _affix_dict_cache
+    if _affix_dict_cache is None:
+        import json
+        with open(_AFFIX_DICT_PATH, "r", encoding="utf-8") as f:
+            _affix_dict_cache = json.load(f)
+    return _affix_dict_cache
+
+
+def match_affix(text: str) -> str:
+    """用词库匹配修正OCR误识别的词条文字。
+
+    匹配规则：
+    - 以"侵蚀·"开头 → 在侵蚀词缀列表中找最接近的匹配
+    - 不以"侵蚀·"开头 → 在常规词缀列表中找最接近的匹配
+    - 不存在其他形式的前缀和后缀
+    - 字数不恒定（有4字、6字等）
+
+    匹配方式：编辑距离（Levenshtein distance），阈值<=2则替换为标准名称。
     """
-    # 先去掉非中文和非·字符（保留"·"因为"侵蚀·"需要它）
+    import json
+
+    # 先清洗：去掉非中文和非·字符
     cleaned = ''.join(c for c in text if '\u4e00' <= c <= '\u9fff' or c == '·')
 
-    # 去掉已知噪音前缀（如"m侵蚀·"→"侵蚀·"）
-    for prefix in _AFFIX_NOISE_PREFIXES:
-        if cleaned.startswith(prefix):
-            cleaned = cleaned[len(prefix):]
-            # 去掉前缀后如果以"侵蚀"开头但没有"·"，补上
-            if cleaned.startswith('侵蚀') and not cleaned.startswith('侵蚀·'):
-                cleaned = '侵蚀·' + cleaned[2:]
-            break
+    if len(cleaned) < 2:
+        return cleaned
 
-    return cleaned
+    affix_dict = _load_affix_dict()
+    erode_prefix = affix_dict["侵蚀前缀"]  # "侵蚀·"
+
+    # 判断是侵蚀词缀还是常规词缀
+    if cleaned.startswith(erode_prefix):
+        candidates = affix_dict["侵蚀词缀"]
+    else:
+        candidates = affix_dict["常规词缀"]
+
+    # 用编辑距离找最接近的匹配
+    best_match = None
+    best_distance = 999
+    for candidate in candidates:
+        dist = _levenshtein(cleaned, candidate)
+        if dist < best_distance:
+            best_distance = dist
+            best_match = candidate
+
+    # 编辑距离<=2则替换为标准名称，否则保留清洗后的文本
+    if best_match and best_distance <= 2:
+        if best_match != cleaned:
+            log.info(f"  词库匹配: {repr(cleaned)} -> {repr(best_match)} (距离={best_distance})")
+        return best_match
+    else:
+        log.info(f"  词库未匹配: {repr(cleaned)} (最近={repr(best_match)} 距离={best_distance})")
+        return cleaned
+
+
+def _levenshtein(s1: str, s2: str) -> int:
+    """计算两个字符串的编辑距离（Levenshtein distance）。"""
+    if len(s1) < len(s2):
+        return _levenshtein(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    prev_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        curr_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = prev_row[j + 1] + 1
+            deletions = curr_row[j] + 1
+            substitutions = prev_row[j] + (c1 != c2)
+            curr_row.append(min(insertions, deletions, substitutions))
+        prev_row = curr_row
+    return prev_row[-1]
 
 
 # ── RapidOCR 识别 ──────────────────────────────────────────────────
@@ -174,7 +224,7 @@ def get_affixes(image: np.ndarray, expected_count: int | None = None) -> list[st
     """识别词条文字，返回词条列表（1~4段）。
 
     RapidOCR 全屏识别，筛选 y=640-680 区域中 x>200 的文本（排除敌人难度）。
-    每段词条前有图标，OCR会识别出噪音前缀，用 clean_affix_text 清洗。
+    每段词条前有图标，OCR会识别出噪音前缀，用 match_affix 清洗。
 
     如果 expected_count=4（A8段位），需要左滑一次识别第4段词条。
     """
@@ -197,7 +247,7 @@ def get_affixes(image: np.ndarray, expected_count: int | None = None) -> list[st
     # 清洗词条文字
     affixes = []
     for x, text, conf in affix_raw:
-        cleaned = clean_affix_text(text)
+        cleaned = match_affix(text)
         if len(cleaned) >= 2:
             affixes.append(cleaned)
             log.info(f"  清洗: {repr(text)} -> {repr(cleaned)}")
@@ -222,7 +272,7 @@ def get_affixes(image: np.ndarray, expected_count: int | None = None) -> list[st
             slide_items = filter_by_y(slide_results, DIFFICULTY_Y_RANGE)
             for x, y, text, conf in slide_items:
                 if x > AFFIX_X_START and x < 900 and "下一步" not in text:
-                    cleaned = clean_affix_text(text)
+                    cleaned = match_affix(text)
                     if len(cleaned) >= 2:
                         # 如果是新的词条（不在已有列表中），添加
                         if cleaned not in affixes:
