@@ -115,10 +115,11 @@ def get_affixes(image: np.ndarray) -> list[str]:
     # 分割词条：乱码字符作为分隔标志，后面接文字内容
     # 用非中文、非数字、非字母的连续字符作为分隔
     parts = re.split(r'[^\u4e00-\u9fff\w]+', text)
-    parts = [p.strip() for p in parts if p.strip()]
+    # 只保留2字及以上的片段（单字多为乱码误识别）
+    parts = [p.strip() for p in parts if len(p.strip()) >= 2]
 
     if not parts:
-        log.warning("词条识别失败：未识别到任何内容")
+        log.warning("词条识别失败：未识别到任何可信内容")
         return []
 
     log.info(f"词条分割结果: {parts} (共{len(parts)}段)")
@@ -133,7 +134,7 @@ def get_affixes(image: np.ndarray) -> list[str]:
         x1, y1, x2, y2 = AFFIX_AREA
         mid_y = (y1 + y2) // 2
         swipe(log, x2 - 20, mid_y, x1 + 20, mid_y, duration_ms=500)
-        time.sleep(1.0)
+        time.sleep(2.0)  # 滑动后等2秒让画面稳定再截图
 
         # 滑动后重新截图并识别
         new_image = screenshot(log, CACHE_SCREENSHOT)
@@ -142,7 +143,7 @@ def get_affixes(image: np.ndarray) -> list[str]:
                            preprocess=None, scale=1.0, psm=6)
             log.info(f"滑动后词条区域识别: {repr(new_text)}")
             new_parts = re.split(r'[^\u4e00-\u9fff\w]+', new_text)
-            new_parts = [p.strip() for p in new_parts if p.strip()]
+            new_parts = [p.strip() for p in new_parts if len(p.strip()) >= 2]
             log.info(f"滑动后词条分割结果: {new_parts}")
 
             if new_parts:
