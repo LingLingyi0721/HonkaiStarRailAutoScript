@@ -172,22 +172,28 @@ def get_affixes(image: np.ndarray) -> list[str]:
     # 按出现次数降序，同票按长度降序（更完整的优先）
     sorted_parts = sorted(counter.items(), key=lambda x: (-x[1], -len(x[0])))
 
-    # 去重：如果一个词条是另一个的子串，仅保留票数更高的
-    # 例如 "位面强化"(2票) 是 "第一位面强化"(3票) 的子串 → 保留 "第一位面强化"
+    # 去重：匹配度足够高的仅保留票数更高的
+    # 先清洗（只保留中文字符），再判断子串关系和重叠度
+    # 例如 "位面强化4" 清洗后 "位面强化" 是 "冤第一位面强化" 的子串 → 保留票数更高的
     # 例如 "能量逃伟"(3票) 和 "能量逃逸"(1票) 高度重叠 → 保留 "能量逃伟"
+    def clean_chinese(s: str) -> str:
+        return ''.join(c for c in s if '\u4e00' <= c <= '\u9fff')
+
     candidates = [p for p, count in sorted_parts[:6]]  # 先取前6个候选
     confirmed = []
     for p in candidates:
         is_dup = False
+        p_clean = clean_chinese(p)
         for kept in confirmed:
-            # 子串关系：一个是另一个的子串
-            if p in kept or kept in p:
+            kept_clean = clean_chinese(kept)
+            # 清洗后子串关系：一个是另一个的子串
+            if p_clean in kept_clean or kept_clean in p_clean:
                 is_dup = True
-                log.info(f"去重: '{p}' 与 '{kept}' 存在子串关系，保留 '{kept}'")
+                log.info(f"去重: '{p}' 与 '{kept}' 中文子串关系，保留 '{kept}'")
                 break
-            # 高度重叠：共同字符占比 >= 60%
-            common = sum(1 for c in p if c in kept)
-            overlap_ratio = common / max(len(p), len(kept))
+            # 高度重叠：共同中文字符占比 >= 60%
+            common = sum(1 for c in p_clean if c in kept_clean)
+            overlap_ratio = common / max(len(p_clean), len(kept_clean)) if max(len(p_clean), len(kept_clean)) > 0 else 0
             if overlap_ratio >= 0.6:
                 is_dup = True
                 log.info(f"去重: '{p}' 与 '{kept}' 重叠度{overlap_ratio:.0%}，保留 '{kept}'")
