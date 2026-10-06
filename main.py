@@ -1,0 +1,107 @@
+"""崩坏：星穹铁道 自动化统筹脚本。
+
+按顺序编排各阶段脚本，每个阶段独立模块、独立 run()。
+新增阶段只需在 STAGES 列表里追加一行。
+
+用法：
+    python main.py              # 从头跑全部阶段
+    python main.py --from guide # 从指定阶段开始跑
+    python main.py --only launch # 只跑单个阶段
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import time
+from pathlib import Path
+
+# ── 阶段注册 ───────────────────────────────────────────────────────
+
+STAGES = [
+    ("launch",    "启动游戏",       "launch"),
+    ("navigate",  "导航至旷宇纷争",  "navigate"),
+    ("battle",    "进入货币战争",    "battle"),
+    # 后续阶段在此追加：
+    # ("settle",  "结算与循环",      "settle"),
+]
+
+
+def run_stage(name: str, label: str, module: str) -> int:
+    print(f"\n{'=' * 50}")
+    print(f"阶段: {name} — {label}")
+    print(f"{'=' * 50}")
+
+    try:
+        mod = __import__(module)
+    except ImportError as e:
+        print(f"[ERROR] 模块导入失败: {module}: {e}")
+        return 1
+
+    try:
+        rc = mod.run()
+    except Exception as e:
+        print(f"[ERROR] 阶段异常: {name}: {e}")
+        return 1
+
+    if rc != 0:
+        print(f"[ERROR] 阶段失败: {name} (rc={rc})")
+        return rc
+
+    print(f"[OK] 阶段完成: {name}")
+    return 0
+
+
+# ── 主流程 ─────────────────────────────────────────────────────────
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="崩坏：星穹铁道自动化统筹脚本")
+    parser.add_argument("--from", dest="start", default=None,
+                        help="从指定阶段开始（跳过之前的阶段）")
+    parser.add_argument("--only", dest="only", default=None,
+                        help="只跑指定阶段")
+    args = parser.parse_args()
+
+    # 确定要跑的阶段列表
+    if args.only:
+        stages = [(n, l, m) for n, l, m in STAGES if n == args.only]
+        if not stages:
+            print(f"[ERROR] 未知阶段: {args.only}")
+            print(f"可用阶段: {[n for n, _, _ in STAGES]}")
+            return 1
+    elif args.start:
+        idx = next((i for i, (n, _, _) in enumerate(STAGES) if n == args.start), None)
+        if idx is None:
+            print(f"[ERROR] 未知阶段: {args.start}")
+            print(f"可用阶段: {[n for n, _, _ in STAGES]}")
+            return 1
+        stages = STAGES[idx:]
+    else:
+        stages = STAGES
+
+    total_start = time.time()
+
+    # 设置统一日志文件路径，各子模块通过环境变量读取
+    log_dir = Path("log")
+    log_dir.mkdir(exist_ok=True)
+    log_file = str(log_dir / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}.log")
+    os.environ["HSR_LOG_FILE"] = log_file
+    print(f"日志文件: {log_file}")
+
+    print(f"计划阶段: {[n for n, _, _ in stages]}")
+
+    for name, label, module in stages:
+        rc = run_stage(name, label, module)
+        if rc != 0:
+            print(f"\n统筹中止: 阶段 {name} 失败")
+            print(f"已完成阶段: {[n for n, _, _ in stages[:stages.index((name, label, module))]]}")
+            return rc
+
+    elapsed = time.time() - total_start
+    print(f"\n全部阶段完成，总耗时: {elapsed:.1f}秒")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

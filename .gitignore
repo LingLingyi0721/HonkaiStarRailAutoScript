@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 临时文件
+tmp/
+*.tmp
+
+# 日志
+log/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 操作系统
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# 工具二进制（太大，不纳入版本控制）
+tools/adb/
+tools/tesseract/
+
+# CodeArts
+.codeartsdoer/
