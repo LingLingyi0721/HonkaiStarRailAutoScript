@@ -7,7 +7,11 @@
 2. 兜底：点击后"货币战争"仍在则再次点击，最多5次
 3. 确认模式选择界面（"进入标准博弈"） → 点击进入按钮
 4. 兜底：点击后"进入标准博弈"仍在则再次点击，最多5次
-5. 确认标准博弈界面（段位关键词） → 结束
+5. 确认标准博弈界面（"开始对局"） → 记录难度信息（段位+层级） → 点击开始对局按钮
+6. 兜底：点击后"开始对局"仍在则再次点击，最多5次
+7. 确认词条首领一览界面（"下一步"） → 结束
+
+难度信息（CURRENT_RANK_LEVEL）格式如 "A8-50"，供决策层AI使用。
 """
 
 from __future__ import annotations
@@ -52,6 +56,14 @@ RANK_KEYWORDS = [
     {"keyword": "开始对局", "area": (1045, 630, 1130, 655), "preprocess": None, "scale": 1.0, "psm": 6},
 ]
 
+# "开始对局"按钮点击坐标
+START_BATTLE_TAP = (1087, 642)
+
+# 词条首领一览界面关键词（"下一步"按钮确认进入）
+NEXT_STEP_KEYWORDS = [
+    {"keyword": "下一步", "area": (970, 645, 1040, 670), "preprocess": None, "scale": 1.0, "psm": 6},
+]
+
 # 段位徽章区域（模板匹配）
 RANK_BADGE_AREA = (72, 236, 108, 264)
 
@@ -61,6 +73,9 @@ LEVEL_AREA = (188, 303, 282, 374)
 # 层级数字超过此阈值时默认段位为A8，跳过模板匹配
 LEVEL_HIGH_THRESHOLD = 10
 DEFAULT_HIGH_RANK = "A8"
+
+# 当前局难度信息（段位+层级），供决策层AI使用
+CURRENT_RANK_LEVEL: str | None = None
 
 # ── 日志 ────────────────────────────────────────────────────────────
 
@@ -269,8 +284,19 @@ def run() -> int:
         elif stage == "enter_verify":
             if check_keywords(image, RANK_KEYWORDS):
                 log.info("标准博弈界面确认")
-                log.info(f"总耗时: {time.time() - start_time:.1f}秒, 截图次数: {screenshot_count}")
-                return 0
+                # 记录难度信息（段位+层级），供决策层AI使用
+                global CURRENT_RANK_LEVEL
+                CURRENT_RANK_LEVEL = get_rank_level(image)
+                if CURRENT_RANK_LEVEL:
+                    log.info(f"当前难度: {CURRENT_RANK_LEVEL}")
+                else:
+                    log.warning("难度信息识别失败，继续流程")
+                # 点击"开始对局"按钮
+                current_interval = INITIAL_INTERVAL
+                tap(*START_BATTLE_TAP)
+                time.sleep(2.0)
+                retry_count = 0
+                stage = "battle_start"
             elif check_keywords(image, MODE_KEYWORDS):
                 retry_count += 1
                 if retry_count >= MAX_RETRY:
@@ -281,6 +307,27 @@ def run() -> int:
                     return 1
                 log.info(f"仍在模式选择界面，再次点击 (重试 {retry_count}/{MAX_RETRY})")
                 tap(*ENTER_TAP)
+                time.sleep(2.0)
+            else:
+                log.info("加载中...")
+                if current_interval < MAX_INTERVAL:
+                    current_interval = min(current_interval + 1.0, MAX_INTERVAL)
+
+        elif stage == "battle_start":
+            if check_keywords(image, NEXT_STEP_KEYWORDS):
+                log.info("词条首领一览界面确认")
+                log.info(f"总耗时: {time.time() - start_time:.1f}秒, 截图次数: {screenshot_count}")
+                return 0
+            elif check_keywords(image, RANK_KEYWORDS):
+                retry_count += 1
+                if retry_count >= MAX_RETRY:
+                    log.error(f"开始对局点击重试 {MAX_RETRY} 次仍未进入词条首领一览")
+                    snapshot_error("battle_start_retry_exhausted",
+                                   f"点击重试 {MAX_RETRY} 次仍未进入词条首领一览",
+                                   {"stage": stage, "retry_count": retry_count}, image)
+                    return 1
+                log.info(f"仍在标准博弈界面，再次点击开始对局 (重试 {retry_count}/{MAX_RETRY})")
+                tap(*START_BATTLE_TAP)
                 time.sleep(2.0)
             else:
                 log.info("加载中...")
