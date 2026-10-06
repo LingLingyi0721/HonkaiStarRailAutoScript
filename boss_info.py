@@ -55,22 +55,53 @@ log = setup_logging("boss_info")
 # ── 信息提取 ───────────────────────────────────────────────────────
 
 def get_dimensions(image: np.ndarray) -> dict:
-    """识别三位面文字，返回 {dimension1, dimension2, dimension3}。"""
-    from perception.matcher import ocr
+    """识别三位面文字，返回 {dimension1, dimension2, dimension3}。
 
-    results = {}
+    多次截图+OCR，每个位置独立投票取最可信结果。
+    严格保持顺序：position 1 的结果只能投给 dimension1，不能串位。
+    """
+    from perception.matcher import ocr
+    from collections import Counter
+
     areas = [
         ("dimension1", DIMENSION1_AREA),
         ("dimension2", DIMENSION2_AREA),
         ("dimension3", DIMENSION3_AREA),
     ]
 
-    for name, area in areas:
-        text = ocr(image, area=area, lang="chi_sim+eng",
-                   preprocess=None, scale=1.0, psm=6)
-        text = text.strip()
-        results[name] = text
-        log.info(f"{name}: {text if text else '(空)'}")
+    # 收集多次识别结果，每个位置独立统计
+    # 第1次用传入的 image，后续重新截图
+    all_votes: dict[str, list[str]] = {name: [] for name, _ in areas}
+
+    for round_idx in range(3):
+        if round_idx == 0:
+            img = image
+        else:
+            time.sleep(1.0)
+            img = screenshot(log, CACHE_SCREENSHOT)
+            if img is None:
+                continue
+
+        for name, area in areas:
+            text = ocr(img, area=area, lang="chi_sim+eng",
+                       preprocess=None, scale=1.0, psm=6)
+            text = text.strip()
+            if text:
+                all_votes[name].append(text)
+                log.info(f"第{round_idx+1}轮 {name}: {text}")
+
+    # 每个位置独立投票，取出现次数最多的（同票取最长）
+    results = {}
+    for name, _ in areas:
+        votes = all_votes[name]
+        if votes:
+            counter = Counter(votes)
+            best = sorted(counter.items(), key=lambda x: (-x[1], -len(x[0])))[0][0]
+            results[name] = best
+            log.info(f"{name} 最终: {best} (票数: {counter[best]}/{len(votes)})")
+        else:
+            results[name] = ""
+            log.warning(f"{name} 识别失败")
 
     return results
 
