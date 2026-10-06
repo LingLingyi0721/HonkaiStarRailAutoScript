@@ -35,5 +35,3 @@ NUL
 snap.py
 snap_rank.py
 bench_device.py
-# ddddocr ONNX 模型文件（部署脚本自动从 pip 复制）
-tools/ddddocr/*.onnx
