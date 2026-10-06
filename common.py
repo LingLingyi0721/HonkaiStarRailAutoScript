@@ -209,37 +209,36 @@ def proceed_to_next(
     detect_switch: bool = True,
     max_checks: int = 5,
     interval: float = 3.0,
-    max_rounds: int = 10,
+    max_rounds: int = 3,
 ) -> bool:
     """等待 next_keywords 出现，未出现则点击推进并检测界面切换。
 
-    每轮截图检查最多 max_checks 次（间隔 interval 秒）：
+    每轮截图检查最多 max_checks 次（周期 interval 秒），共循环 max_rounds 轮：
     - 命中 → 返回 True
-    - 全部未命中且 detect_switch=True → 截左上角 → 点击 → 再截 → 比对相似度
+    - 本轮未命中且 detect_switch=True → 截左上角 → 点击 → 再截 → 比对相似度
       - 相似度 < SWITCH_THRESHOLD → 界面已切换，返回 True
-      - 否则进入下一轮
-    - detect_switch=False（"点击进入"阶段）跳过切换检测
+    - detect_switch=False（"点击进入"阶段）只重复识别，不点击
     """
     for round_num in range(1, max_rounds + 1):
         for _ in range(max_checks):
+            t0 = time.time()
             image = screenshot(log, cache_path, quiet=True)
             if image is not None and check_keywords(log, image, next_keywords, obj_id):
                 return True
-            time.sleep(interval)
+            time.sleep(max(0.0, interval - (time.time() - t0)))
 
-        if not detect_switch or tap_pos is None:
-            log.warning(f"no fallback for {obj_id}")
-            break
-
-        before = _capture_corner(log)
-        tap(log, *tap_pos)
-        time.sleep(2.0)
-        after = _capture_corner(log)
-        sim = region_similar(before, after)
-        log.info(f"switch check: sim={sim:.2f} ({round_num}/{max_rounds})")
-        if sim < SWITCH_THRESHOLD:
-            log.info("screen switched, proceed")
-            return True
+        if detect_switch and tap_pos is not None:
+            before = _capture_corner(log)
+            tap(log, *tap_pos)
+            time.sleep(2.0)
+            after = _capture_corner(log)
+            sim = region_similar(before, after)
+            log.info(f"switch check: sim={sim:.2f} ({round_num}/{max_rounds})")
+            if sim < SWITCH_THRESHOLD:
+                log.info("screen switched, proceed")
+                return True
+        else:
+            log.info(f"no switch check for {obj_id} ({round_num}/{max_rounds})")
 
     log.error(f"proceed failed: {obj_id}")
     if cache_path and cache_path.exists():
