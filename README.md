@@ -21,9 +21,9 @@
 
 ```
 编排层   main.py 统筹脚本
-决策层   LLM                          ← 全新
-工具层   click / swipe / wait / query  → 封装成 tool
-感知层   截图 + OCR / 模板匹配 → 结构化状态
+决策层   LLM
+工具层   click / swipe / wait / query
+感知层   截图 + OCR / 模板匹配
 设备层   ADB / 模拟器 IPC
 ```
 
