@@ -153,6 +153,7 @@ def match_binary(
 
 _pytesseract = None
 _ddddocr_engine = None
+_rapidocr_engine = None
 
 
 def _get_tesseract():
@@ -176,6 +177,15 @@ def _get_ddddocr():
         import ddddocr
         _ddddocr_engine = ddddocr.DdddOcr(show_ad=False)
     return _ddddocr_engine
+
+
+def _get_rapidocr():
+    """懒加载 RapidOCR 引擎，用于中文密集场景（词条、位面等）。"""
+    global _rapidocr_engine
+    if _rapidocr_engine is None:
+        from rapidocr_onnxruntime import RapidOCR
+        _rapidocr_engine = RapidOCR()
+    return _rapidocr_engine
 
 
 def ocr(
@@ -253,6 +263,31 @@ def ocr_number(image: np.ndarray, area: tuple[int, int, int, int] | None = None)
     engine = _get_ddddocr()
     result = engine.classification(gray)
     return result.strip()
+
+
+def ocr_rapid(
+    image: np.ndarray,
+    area: tuple[int, int, int, int] | None = None,
+) -> list[tuple[list, str, float]]:
+    """RapidOCR 全屏/区域识别，返回 [(box, text, conf), ...]。
+
+    RapidOCR 自动检测文本位置和分行，适合中文密集场景（词条、位面等）。
+    无需预设区域坐标即可全屏识别，也支持裁切区域识别。
+
+    Args:
+        image: 截图 BGR 数组
+        area: (x1,y1,x2,y2)，指定区域；None 则整图
+
+    Returns:
+        list of [box, text, conf]：
+        - box: 4个角点坐标 [[x1,y1],[x2,y1],[x2,y2],[x1,y2]]
+        - text: 识别文本
+        - conf: 置信度 0~1
+    """
+    region = crop(image, area) if area else image
+    engine = _get_rapidocr()
+    result, _ = engine(region)
+    return result if result else []
 
 
 # ── 区域工具 ────────────────────────────────────────────────────────

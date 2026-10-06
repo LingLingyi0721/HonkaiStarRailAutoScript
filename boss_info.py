@@ -1,12 +1,14 @@
 """崩坏：星穹铁道 货币战争 BOSS 信息脚本。
 
-前置条件：已通过 battle.py 进入词条首领一览界面（"下一步"）。
+前置条件：已通过 navigate.py 进入词条首领一览界面（"下一步"）。
 
-输出信息（同时写入日志和 output/boss_info/ JSON 文件）：
-1. 当前段位（段位）+（层级） — 如 "当前段位：A8（50）"
-2. 三位面文字 — 如 "第一位面：xxx"
-3. 敌人难度+数值 — 如 "敌人难度：5"
+输出信息（同时写入日志和 output/boss_info.json）：
+1. 当前段位+层级 — 如 "A8-10"
+2. 三位面文字 — 如 "第一位面：凛冬经贸联合体"
+3. 敌人难度+数值 — 如 "敌人难度：70"
 4. 词条文字 — 1~4段，第4段需滑动补全
+
+OCR引擎：RapidOCR（自动检测文本位置+分行，适合中文密集场景）
 """
 
 from __future__ import annotations
@@ -28,17 +30,6 @@ from common import (
 
 CACHE_SCREENSHOT = Path("tmp/boss_info_screenshot.png")
 
-# 三位面文字区域（y500-525）
-DIMENSION1_AREA = (50, 500, 245, 525)    # 第一位面
-DIMENSION2_AREA = (300, 500, 500, 525)   # 第二位面
-DIMENSION3_AREA = (550, 500, 755, 525)   # 第三位面
-
-# 敌人难度区域（文字+数值）
-ENEMY_DIFFICULTY_AREA = (70, 640, 210, 670)
-
-# 词条文字区域（1~4段，第4段可能需要滑动补全）
-AFFIX_AREA = (220, 640, 765, 670)
-
 # 段位与词条数量映射（A0-A1:0, A2-A3:1, A4-A5:2, A6-A7:3, A8:4）
 RANK_AFFIX_COUNT = {
     "A0": 0, "A1": 0,
@@ -48,8 +39,75 @@ RANK_AFFIX_COUNT = {
     "A8": 4,
 }
 
+# 区域 y 坐标范围（用于从 RapidOCR 全屏结果中筛选）
+DIMENSION_Y_RANGE = (490, 530)    # 三位面文字
+DIFFICULTY_Y_RANGE = (640, 680)   # 敌人难度 + 词条
+AFFIX_X_START = 200               # 词条区域 x 起点（排除敌人难度区域）
+
+# 滑动参数
+AFFIX_SWIPE_X1 = 745
+AFFIX_SWIPE_X2 = 240
+AFFIX_SWIPE_Y = 655
+
 
 log = setup_logging("boss_info")
+
+
+# ── 词条清洗 ───────────────────────────────────────────────────────
+
+# 已知的词条前缀噪音模式（游戏图标被OCR误识别）
+_AFFIX_NOISE_PREFIXES = [
+    "侵蚀·", "侵蚀", "m侵蚀·", "m侵蚀",
+]
+
+def clean_affix_text(text: str) -> str:
+    """清洗词条文字，去掉图标误识别产生的前缀噪音。
+
+    规则：
+    1. 去掉所有非中文字符（m、?、·等）
+    2. 去掉已知的噪音前缀（侵蚀·等）
+    3. 如果结果超过4字，去掉前面的噪音字（词条名称通常4字，
+       图标误识别会产生1-2字前缀）
+    """
+    # 先去掉非中文字符
+    chinese_only = ''.join(c for c in text if '\u4e00' <= c <= '\u9fff')
+
+    # 去掉已知噪音前缀
+    for prefix in _AFFIX_NOISE_PREFIXES:
+        if chinese_only.startswith(prefix):
+            chinese_only = chinese_only[len(prefix):]
+            break
+
+    # 如果超过4字，去掉前面的噪音字（词条通常4字，图标会产生1-2字前缀）
+    if len(chinese_only) > 4:
+        chinese_only = chinese_only[-4:]
+
+    return chinese_only
+
+
+# ── RapidOCR 识别 ──────────────────────────────────────────────────
+
+def rapidocr_fullscreen(image: np.ndarray) -> list[tuple[list, str, float]]:
+    """RapidOCR 全屏识别，返回所有检测结果。"""
+    from perception.matcher import ocr_rapid
+    return ocr_rapid(image)
+
+
+def filter_by_y(
+    results: list[tuple[list, str, float]],
+    y_range: tuple[int, int],
+) -> list[tuple[float, float, str, float]]:
+    """按 y 坐标范围筛选结果，返回 [(x_avg, y_avg, text, conf), ...]"""
+    y1, y2 = y_range
+    filtered = []
+    for box, text, conf in results:
+        ys = [p[1] for p in box]
+        y_avg = sum(ys) / len(ys)
+        if y1 <= y_avg <= y2:
+            xs = [p[0] for p in box]
+            x_avg = sum(xs) / len(xs)
+            filtered.append((x_avg, y_avg, text, float(conf)))
+    return filtered
 
 
 # ── 信息提取 ───────────────────────────────────────────────────────
@@ -57,187 +115,132 @@ log = setup_logging("boss_info")
 def get_dimensions(image: np.ndarray) -> dict:
     """识别三位面文字，返回 {dimension1, dimension2, dimension3}。
 
-    多次截图+OCR，每个位置独立投票取最可信结果。
-    严格保持顺序：position 1 的结果只能投给 dimension1，不能串位。
+    RapidOCR 全屏识别，按 y=490-530 筛选，再按 x 坐标排序对应三位面。
     """
-    from perception.matcher import ocr
-    from collections import Counter
+    results = rapidocr_fullscreen(image)
+    dim_items = filter_by_y(results, DIMENSION_Y_RANGE)
 
-    areas = [
-        ("dimension1", DIMENSION1_AREA),
-        ("dimension2", DIMENSION2_AREA),
-        ("dimension3", DIMENSION3_AREA),
-    ]
+    # 按 x 坐标排序
+    dim_items.sort(key=lambda item: item[0])
 
-    # 收集多次识别结果，每个位置独立统计
-    # 第1次用传入的 image，后续重新截图
-    all_votes: dict[str, list[str]] = {name: [] for name, _ in areas}
+    log.info(f"三位面区域识别到 {len(dim_items)} 项:")
+    for x, y, text, conf in dim_items:
+        log.info(f"  x={x:.0f} y={y:.0f} conf={conf:.2f} text={repr(text)}")
 
-    for round_idx in range(3):
-        if round_idx == 0:
-            img = image
+    # 按位置分配 dimension1/2/3
+    keys = ["dimension1", "dimension2", "dimension3"]
+    results_dict = {}
+    for i, key in enumerate(keys):
+        if i < len(dim_items):
+            results_dict[key] = dim_items[i][2]  # text
         else:
-            time.sleep(1.0)
-            img = screenshot(log, CACHE_SCREENSHOT)
-            if img is None:
-                continue
+            results_dict[key] = ""
+            log.warning(f"{key} 识别失败")
 
-        for name, area in areas:
-            text = ocr(img, area=area, lang="chi_sim+eng",
-                       preprocess=None, scale=1.0, psm=6)
-            text = text.strip()
-            if text:
-                all_votes[name].append(text)
-                log.info(f"第{round_idx+1}轮 {name}: {text}")
-
-    # 每个位置独立投票，取出现次数最多的（同票取最长）
-    results = {}
-    for name, _ in areas:
-        votes = all_votes[name]
-        if votes:
-            counter = Counter(votes)
-            best = sorted(counter.items(), key=lambda x: (-x[1], -len(x[0])))[0][0]
-            results[name] = best
-            log.info(f"{name} 最终: {best} (票数: {counter[best]}/{len(votes)})")
-        else:
-            results[name] = ""
-            log.warning(f"{name} 识别失败")
-
-    return results
+    return results_dict
 
 
 def get_enemy_difficulty(image: np.ndarray) -> str | None:
-    """识别敌人难度+数值，返回数值部分。
+    """识别敌人难度数值。
 
-    区域 x70-210, y640-670 包含"敌人难度"文字和数值。
-    先尝试整体识别，提取数值；如果文字干扰大，用数字白名单只认数字。
+    RapidOCR 全屏识别，筛选 y=640-680 区域中包含"敌人难度"的文字，提取数字。
     """
-    from perception.matcher import ocr
+    results = rapidocr_fullscreen(image)
+    diff_items = filter_by_y(results, DIFFICULTY_Y_RANGE)
 
-    # 先整体识别（文字+数值）
-    full_text = ocr(image, area=ENEMY_DIFFICULTY_AREA, lang="chi_sim+eng",
-                    preprocess=None, scale=1.0, psm=6)
-    log.info(f"敌人难度区域原始识别: {repr(full_text)}")
+    # 找包含"敌人难度"或"难度"的文本
+    for x, y, text, conf in diff_items:
+        if "难度" in text or "敌人" in text:
+            log.info(f"敌人难度区域: conf={conf:.2f} text={repr(text)}")
+            numbers = re.findall(r'\d+', text)
+            if numbers:
+                difficulty = numbers[-1]
+                log.info(f"敌人难度: {difficulty}")
+                return difficulty
 
-    # 从识别结果中提取数字
-    numbers = re.findall(r'\d+', full_text)
-    if numbers:
-        difficulty = numbers[-1]  # 取最后一个数字（难度数值通常在文字后面）
-        log.info(f"敌人难度: {difficulty}")
-        return difficulty
-
-    # 如果整体识别没提取到数字，用数字白名单再试
-    digits_text = ocr(image, area=ENEMY_DIFFICULTY_AREA, lang="eng",
-                      whitelist="0123456789",
-                      preprocess=None, scale=2.0, psm=6)
-    digits_text = digits_text.strip()
-    if digits_text and digits_text.isdigit():
-        log.info(f"敌人难度(数字白名单): {digits_text}")
-        return digits_text
+    # 如果没找到"敌人难度"文字，尝试在 x<200 区域找纯数字
+    for x, y, text, conf in diff_items:
+        if x < 200:
+            numbers = re.findall(r'\d+', text)
+            if numbers:
+                difficulty = numbers[-1]
+                log.info(f"敌人难度(位置推断): {difficulty} from {repr(text)}")
+                return difficulty
 
     log.warning("敌人难度识别失败")
     return None
 
 
-def get_affixes(image: np.ndarray) -> list[str]:
+def get_affixes(image: np.ndarray, expected_count: int | None = None) -> list[str]:
     """识别词条文字，返回词条列表（1~4段）。
 
-    区域 x220-765, y640-670 包含1~4段词条文字，每段前面有一个乱码标记。
-    如果存在第4段，执行左滑+右滑循环两次，用投票机制取最可信内容：
-    - 左滑：第4段完整显示
-    - 右滑回来：前3段再次可见
-    - 真词条在多次识别中反复出现（高票），乱码每次不同（低票被淘汰）
+    RapidOCR 全屏识别，筛选 y=640-680 区域中 x>200 的文本（排除敌人难度）。
+    每段词条前有图标，OCR会识别出噪音前缀，用 clean_affix_text 清洗。
+
+    如果 expected_count=4（A8段位），需要左滑一次识别第4段词条。
     """
-    from perception.matcher import ocr
-    from collections import Counter
+    results = rapidocr_fullscreen(image)
+    diff_items = filter_by_y(results, DIFFICULTY_Y_RANGE)
 
-    def ocr_affix(img: np.ndarray) -> list[str]:
-        """对词条区域做 OCR 并分割过滤。"""
-        text = ocr(img, area=AFFIX_AREA, lang="chi_sim+eng",
-                   preprocess=None, scale=1.0, psm=6)
-        parts = re.split(r'[^\u4e00-\u9fff\w]+', text)
-        # 只保留2字及以上、且包含至少一个中文字符的片段
-        # （纯英文/数字片段是乱码误识别，如 WA/CRAG/PB）
-        return [p.strip() for p in parts
-                if len(p.strip()) >= 2 and re.search(r'[\u4e00-\u9fff]', p)]
+    # 筛选词条区域（x > AFFIX_X_START，排除敌人难度和"下一步"按钮）
+    affix_raw = []
+    for x, y, text, conf in diff_items:
+        if x > AFFIX_X_START and x < 900 and "下一步" not in text:
+            affix_raw.append((x, text, conf))
 
-    # 原始位置识别
-    parts = ocr_affix(image)
-    log.info(f"原始识别: {parts} (共{len(parts)}段)")
+    # 按 x 坐标排序
+    affix_raw.sort(key=lambda item: item[0])
 
-    # 即使原始识别为空，也执行滑动循环（词条可能全部被乱码遮挡）
-    # 执行左滑+右滑循环两次，用投票机制取最可信内容
-    x1, y1, x2, y2 = AFFIX_AREA
-    mid_y = (y1 + y2) // 2
+    log.info(f"词条区域识别到 {len(affix_raw)} 项:")
+    for x, text, conf in affix_raw:
+        log.info(f"  x={x:.0f} conf={conf:.2f} text={repr(text)}")
 
-    all_results = [parts]  # 收集所有轮次的识别结果
+    # 清洗词条文字
+    affixes = []
+    for x, text, conf in affix_raw:
+        cleaned = clean_affix_text(text)
+        if len(cleaned) >= 2:
+            affixes.append(cleaned)
+            log.info(f"  清洗: {repr(text)} -> {repr(cleaned)}")
 
-    for round_idx in range(2):
-        round_num = round_idx + 1
+    # 如果需要4段词条但只识别到不足4段，或第4段可能被截断（少于3字），左滑补全
+    need_slide = False
+    if expected_count and expected_count == 4:
+        if len(affixes) < 4:
+            need_slide = True
+        elif len(affixes) == 4 and len(affixes[3]) < 3:
+            # 第4段词条少于3字，可能是截断的
+            log.info(f"第4段词条 '{affixes[3]}' 可能被截断，左滑补全")
+            need_slide = True
 
-        # 左滑（看第4段）
-        swipe(log, x2 - 20, mid_y, x1 + 20, mid_y, duration_ms=500)
+    if need_slide:
+        log.info("左滑补全第4段词条")
+        swipe(log, AFFIX_SWIPE_X1, AFFIX_SWIPE_Y, AFFIX_SWIPE_X2, AFFIX_SWIPE_Y, duration_ms=500)
         time.sleep(2.0)
-        new_image = screenshot(log, CACHE_SCREENSHOT)
-        if new_image is not None:
-            parts_left = ocr_affix(new_image)
-            log.info(f"第{round_num}轮左滑识别: {parts_left}")
-            all_results.append(parts_left)
+        img_slide = screenshot(log, CACHE_SCREENSHOT)
+        if img_slide is not None:
+            slide_results = rapidocr_fullscreen(img_slide)
+            slide_items = filter_by_y(slide_results, DIFFICULTY_Y_RANGE)
+            for x, y, text, conf in slide_items:
+                if x > AFFIX_X_START and x < 900 and "下一步" not in text:
+                    cleaned = clean_affix_text(text)
+                    if len(cleaned) >= 2:
+                        # 如果是新的词条（不在已有列表中），添加
+                        if cleaned not in affixes:
+                            log.info(f"  左滑补全: {repr(text)} -> {repr(cleaned)}")
+                            # 如果第4段被截断，替换它
+                            if len(affixes) == 4 and len(affixes[3]) < 3 and len(cleaned) > len(affixes[3]):
+                                affixes[3] = cleaned
+                                log.info(f"  替换截断词条: {repr(affixes[3])}")
+                            else:
+                                affixes.append(cleaned)
 
-        # 右滑回来（看前3段）
-        swipe(log, x1 + 20, mid_y, x2 - 20, mid_y, duration_ms=500)
+        # 右滑回来
+        swipe(log, AFFIX_SWIPE_X2, AFFIX_SWIPE_Y, AFFIX_SWIPE_X1, AFFIX_SWIPE_Y, duration_ms=500)
         time.sleep(2.0)
-        new_image = screenshot(log, CACHE_SCREENSHOT)
-        if new_image is not None:
-            parts_right = ocr_affix(new_image)
-            log.info(f"第{round_num}轮右滑识别: {parts_right}")
-            all_results.append(parts_right)
 
-    # 投票：把所有轮次中出现的片段统计频次
-    # 真词条反复出现（高票），乱码每次不同（低票淘汰）
-    all_parts = []
-    for r in all_results:
-        all_parts.extend(r)
-
-    counter = Counter(all_parts)
-    # 按出现次数降序，同票按长度降序（更完整的优先）
-    sorted_parts = sorted(counter.items(), key=lambda x: (-x[1], -len(x[0])))
-
-    # 去重：匹配度足够高的仅保留票数更高的
-    # 先清洗（只保留中文字符），再判断子串关系和重叠度
-    # 例如 "位面强化4" 清洗后 "位面强化" 是 "冤第一位面强化" 的子串 → 保留票数更高的
-    # 例如 "能量逃伟"(3票) 和 "能量逃逸"(1票) 高度重叠 → 保留 "能量逃伟"
-    def clean_chinese(s: str) -> str:
-        return ''.join(c for c in s if '\u4e00' <= c <= '\u9fff')
-
-    candidates = [p for p, count in sorted_parts[:6]]  # 先取前6个候选
-    confirmed = []
-    for p in candidates:
-        is_dup = False
-        p_clean = clean_chinese(p)
-        for kept in confirmed:
-            kept_clean = clean_chinese(kept)
-            # 清洗后子串关系：一个是另一个的子串
-            if p_clean in kept_clean or kept_clean in p_clean:
-                is_dup = True
-                log.info(f"去重: '{p}' 与 '{kept}' 中文子串关系，保留 '{kept}'")
-                break
-            # 高度重叠：共同中文字符占比 >= 60%
-            common = sum(1 for c in p_clean if c in kept_clean)
-            overlap_ratio = common / max(len(p_clean), len(kept_clean)) if max(len(p_clean), len(kept_clean)) > 0 else 0
-            if overlap_ratio >= 0.6:
-                is_dup = True
-                log.info(f"去重: '{p}' 与 '{kept}' 重叠度{overlap_ratio:.0%}，保留 '{kept}'")
-                break
-        if not is_dup:
-            confirmed.append(p)
-        if len(confirmed) >= 4:
-            break
-
-    log.info(f"投票统计: {[(p, c) for p, c in sorted_parts[:6]]}")
-    log.info(f"最终词条: {confirmed}")
-
-    return confirmed
+    log.info(f"最终词条: {affixes}")
+    return affixes
 
 
 # ── 主流程 ─────────────────────────────────────────────────────────
@@ -259,8 +262,6 @@ def run() -> int:
         return 1
 
     # ── 1. 段位和层级 ──
-    # 词条首领一览界面不显示段位层级，从 battle 模块传递过来
-    # 独立运行时 fallback 到自己识别
     log.info("-" * 30)
     log.info("步骤1: 段位和层级")
     log.info("-" * 30)
@@ -269,7 +270,6 @@ def run() -> int:
     try:
         import navigate
         if navigate.CURRENT_RANK_LEVEL:
-            # navigate.py 传递的格式如 "A8-50" 或 "A3"（层级OCR失败时只有段位）
             combined = navigate.CURRENT_RANK_LEVEL
             if "-" in combined:
                 rank_name, level_text = combined.split("-", 1)
@@ -284,32 +284,35 @@ def run() -> int:
         log.info("navigate 模块无段位信息，尝试本地识别")
         rank_info = get_rank_level(image, log)
 
-    # ── 2. 三位面文字 ──
+    # ── 2. RapidOCR 全屏识别 ──
     log.info("-" * 30)
-    log.info("步骤2: 三位面")
+    log.info("步骤2: RapidOCR 全屏识别")
+    log.info("-" * 30)
+
+    # ── 3. 三位面文字 ──
+    log.info("-" * 30)
+    log.info("步骤3: 三位面")
     log.info("-" * 30)
 
     dim_info = get_dimensions(image)
 
-    # ── 3. 敌人难度 ──
+    # ── 4. 敌人难度 ──
     log.info("-" * 30)
-    log.info("步骤3: 敌人难度")
+    log.info("步骤4: 敌人难度")
     log.info("-" * 30)
 
     difficulty = get_enemy_difficulty(image)
 
-    # ── 4. 词条文字 ──
+    # ── 5. 词条文字 ──
     log.info("-" * 30)
-    log.info("步骤4: 词条")
+    log.info("步骤5: 词条")
     log.info("-" * 30)
 
-    affixes = get_affixes(image)
+    expected_count = RANK_AFFIX_COUNT.get(rank_info["rank"]) if rank_info else None
+    affixes = get_affixes(image, expected_count=expected_count)
 
     # ── 词条数量校验 ──
-    # 各段位词条数量固定：A0-A1:0, A2-A3:1, A4-A5:2, A6-A7:3, A8:4
-    # 如果识别到的词条数少于当前段位应有的数量，抛出错误
     if rank_info:
-        expected_count = RANK_AFFIX_COUNT.get(rank_info["rank"])
         actual_count = len(affixes)
         if expected_count is not None and actual_count < expected_count:
             log.error(
@@ -323,7 +326,6 @@ def run() -> int:
                  "actual": actual_count, "affixes": affixes},
                 image,
             )
-            # 仍然继续输出，但标记错误
         else:
             log.info(f"词条数量校验通过: 段位{rank_info['rank']} → {actual_count}/{expected_count}个词条")
 
@@ -349,8 +351,7 @@ def run() -> int:
     for i, affix in enumerate(affixes, 1):
         log.info(f"词条{i}：{affix}")
 
-    # ── 结构化 JSON 输出到 output/boss_info/ ──
-    expected_count = RANK_AFFIX_COUNT.get(rank_info["rank"]) if rank_info else None
+    # ── 结构化 JSON 输出 ──
     output_data = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "rank": rank_info["rank"] if rank_info else None,
