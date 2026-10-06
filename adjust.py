@@ -21,8 +21,9 @@ from common import (
     setup_logging, ensure_device, screenshot,
     get_rank_level, rank_to_global, global_to_rank,
     RANK_LEVELS, RANK_ORDER, LEVEL_UP_AREA, LEVEL_DOWN_AREA,
-    tap, area_center,
+    tap,
 )
+from perception.matcher import area_center
 
 
 def adjust_level(target_rank: str, target_level: int, max_clicks: int = 60) -> bool:
@@ -38,12 +39,10 @@ def adjust_level(target_rank: str, target_level: int, max_clicks: int = 60) -> b
     """
     log = setup_logging("adjust")
 
-    device = ensure_device(log)
-    if device is None:
-        return False
+    ensure_device(log)
 
     # 截图识别当前段位+层级
-    img = screenshot(device, log)
+    img = screenshot(log)
     if img is None:
         return False
 
@@ -90,12 +89,12 @@ def adjust_level(target_rank: str, target_level: int, max_clicks: int = 60) -> b
 
     # 逐次点击
     for i in range(min(diff, max_clicks)):
-        tap(device, click_point[0], click_point[1], log)
+        tap(log, click_point[0], click_point[1])
         time.sleep(0.3)  # 等待UI响应
 
     # 验证
     time.sleep(1.0)
-    img2 = screenshot(device, log)
+    img2 = screenshot(log)
     if img2 is None:
         log.warning("验证截图失败，假设调整成功")
         return True
@@ -117,15 +116,15 @@ def adjust_level(target_rank: str, target_level: int, max_clicks: int = 60) -> b
             remaining = target_global - new_global
             if remaining > 0:
                 for _ in range(min(remaining, 10)):
-                    tap(device, up_center[0], up_center[1], log)
+                    tap(log, up_center[0], up_center[1])
                     time.sleep(0.3)
             elif remaining < 0:
                 for _ in range(min(-remaining, 10)):
-                    tap(device, down_center[0], down_center[1], log)
+                    tap(log, down_center[0], down_center[1])
                     time.sleep(0.3)
 
             time.sleep(1.0)
-            img3 = screenshot(device, log)
+            img3 = screenshot(log)
             if img3 is not None:
                 rank_info3 = get_rank_level(img3, log)
                 if rank_info3 and rank_info3["rank"] and rank_info3["level"]:
