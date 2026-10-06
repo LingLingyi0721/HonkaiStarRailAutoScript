@@ -13,6 +13,9 @@ tmp/
 # 日志
 log/
 
+# 输出（运行时生成的结构化数据）
+output/
+
 # IDE
 .vscode/
 .idea/
@@ -30,3 +33,8 @@ tools/tesseract/
 
 # CodeArts
 .codeartsdoer/
+
+# 测试用脚本
+snap.py
+snap_rank.py
+bench_device.py
