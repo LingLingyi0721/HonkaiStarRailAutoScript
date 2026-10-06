@@ -1,11 +1,8 @@
-"""崩坏：星穹铁道 自动化统筹脚本。
-
-按顺序编排各阶段脚本，每个阶段独立模块、独立 run()。
-新增阶段只需在 STAGES 列表里追加一行。
+"""编排层：按顺序调度各阶段脚本。
 
 用法：
-    python main.py              # 从头跑全部阶段
-    python main.py --from guide # 从指定阶段开始跑
+    python main.py              # 全部阶段
+    python main.py --from guide # 从指定阶段开始
     python main.py --only launch # 只跑单个阶段
     python main.py --rank A8-10  # 指定目标段位层级
 """
@@ -21,18 +18,15 @@ from pathlib import Path
 # ── 阶段注册 ───────────────────────────────────────────────────────
 
 STAGES = [
-    ("launch",    "启动游戏",       "launch"),
-    ("navigate",  "导航至货币战争",  "navigate"),
-    ("boss_info", "BOSS信息识别",    "boss_info"),
-    # 后续阶段在此追加：
-    # ("settle",  "结算与循环",      "settle"),
+    ("launch",    "launch game",     "launch"),
+    ("navigate",  "navigate to war", "navigate"),
+    ("boss_info", "boss info",       "boss_info"),
+    # ("settle",  "settle & loop",   "settle"),
 ]
 
 
 def run_stage(name: str, label: str, module: str, **kwargs) -> int:
-    print(f"\n{'=' * 50}")
-    print(f"阶段: {name} — {label}")
-    print(f"{'=' * 50}")
+    print(f"\nstage: {name} — {label}")
 
     try:
         mod = __import__(module)
@@ -57,7 +51,7 @@ def run_stage(name: str, label: str, module: str, **kwargs) -> int:
 # ── 主流程 ─────────────────────────────────────────────────────────
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="崩坏：星穹铁道自动化统筹脚本")
+    parser = argparse.ArgumentParser(description="HSR auto script")
     parser.add_argument("--from", dest="start", default=None,
                         help="从指定阶段开始（跳过之前的阶段）")
     parser.add_argument("--only", dest="only", default=None,
@@ -97,23 +91,21 @@ def main() -> int:
     log_dir.mkdir(exist_ok=True)
     log_file = str(log_dir / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}.log")
     os.environ["HSR_LOG_FILE"] = log_file
-    print(f"日志文件: {log_file}")
+    print(f"log file: {log_file}")
 
-    print(f"计划阶段: {[n for n, _, _ in stages]}")
+    print(f"stages: {[n for n, _, _ in stages]}")
 
     for name, label, module in stages:
-        # navigate 阶段传入目标段位层级参数
-        stage_kwargs = {}
         if name == "navigate" and args.rank_level:
             stage_kwargs["target_rank_level"] = args.rank_level
         rc = run_stage(name, label, module, **stage_kwargs)
         if rc != 0:
-            print(f"\n统筹中止: 阶段 {name} 失败")
-            print(f"已完成阶段: {[n for n, _, _ in stages[:stages.index((name, label, module))]]}")
+            print(f"\naborted: stage {name} failed")
+            print(f"completed: {[n for n, _, _ in stages[:stages.index((name, label, module))]]}")
             return rc
 
     elapsed = time.time() - total_start
-    print(f"\n全部阶段完成，总耗时: {elapsed:.1f}秒")
+    print(f"\nall done: {elapsed:.1f}s")
     return 0
 
 

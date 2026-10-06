@@ -1,14 +1,7 @@
-"""崩坏：星穹铁道 段位层级切换模块。
+"""段位层级切换模块。
 
-在标准博弈界面调整段位和层级到目标位置。
-
-流程：
-1. 识别当前段位（模板匹配）+ 层级（ddddocr）
-2. 计算当前全局位置和目标全局位置
-3. 算差值，点击增加/减少按钮N次
-4. 重新识别验证
-
-前置条件：已进入标准博弈界面（"开始对局"）。
+前置：已进入标准博弈界面。
+流程：识别当前段位+层级 → 计算全局差值 → 点击增减按钮 → 验证
 """
 
 from __future__ import annotations
@@ -66,11 +59,11 @@ def adjust_level(target_rank: str, target_level: int, max_clicks: int = 60) -> b
     current_global = rank_to_global(current_rank, current_level)
     target_global = rank_to_global(target_rank, target_level)
 
-    log.info("当前: %s-%d (全局%d)" % (current_rank, current_level, current_global))
-    log.info("目标: %s-%d (全局%d)" % (target_rank, target_level, target_global))
+    log.info("current: %s-%d (global %d)" % (current_rank, current_level, current_global))
+    log.info("target: %s-%d (global %d)" % (target_rank, target_level, target_global))
 
     if current_global == target_global:
-        log.info("已在目标位置，无需调整")
+        log.info("no adjust needed")
         return True
 
     diff = target_global - current_global
@@ -78,25 +71,25 @@ def adjust_level(target_rank: str, target_level: int, max_clicks: int = 60) -> b
     down_center = area_center(LEVEL_DOWN_AREA)
 
     if diff > 0:
-        direction = "增加"
+        direction = "up"
         click_point = up_center
     else:
-        direction = "减少"
+        direction = "down"
         click_point = down_center
         diff = -diff
 
-    log.info("需要%s %d 次（点击 %s）" % (direction, diff, click_point))
+    log.info("adjust %s x%d (%s)" % (direction, diff, click_point))
 
     # 逐次点击
     for i in range(min(diff, max_clicks)):
         tap(log, click_point[0], click_point[1])
-        time.sleep(0.3)  # 等待UI响应
+        time.sleep(0.3)
 
     # 验证
     time.sleep(1.0)
     img2 = screenshot(log)
     if img2 is None:
-        log.warning("验证截图失败，假设调整成功")
+        log.warning("verify screenshot failed, assume ok")
         return True
 
     rank_info2 = get_rank_level(img2, log)
@@ -104,13 +97,13 @@ def adjust_level(target_rank: str, target_level: int, max_clicks: int = 60) -> b
         new_rank = rank_info2["rank"]
         new_level = int(rank_info2["level"])
         new_global = rank_to_global(new_rank, new_level)
-        log.info("调整后: %s-%d (全局%d)" % (new_rank, new_level, new_global))
+        log.info("adjusted: %s-%d (global %d)" % (new_rank, new_level, new_global))
 
         if new_global == target_global:
-            log.info("调整成功")
+            log.info("adjust ok")
             return True
         else:
-            log.warning("调整后位置 %s-%d 与目标 %s-%d 不一致" %
+            log.warning("position %s-%d != target %s-%d" %
                         (new_rank, new_level, target_rank, target_level))
             # 尝试二次修正
             remaining = target_global - new_global
@@ -131,21 +124,19 @@ def adjust_level(target_rank: str, target_level: int, max_clicks: int = 60) -> b
                     final_rank = rank_info3["rank"]
                     final_level = int(rank_info3["level"])
                     final_global = rank_to_global(final_rank, final_level)
-                    log.info("二次修正后: %s-%d (全局%d)" % (final_rank, final_level, final_global))
+                    log.info("final: %s-%d (global %d)" % (final_rank, final_level, final_global))
                     return final_global == target_global
 
             return False
 
-    log.warning("验证识别失败，假设调整成功")
+    log.warning("verify ocr failed, assume ok")
     return True
 
 
 def run(target_rank: str = "A8", target_level: int = 1) -> int:
     """主入口：调整到目标段位层级。"""
     log = setup_logging("adjust")
-    log.info("=" * 50)
-    log.info("崩坏：星穹铁道 段位层级切换")
-    log.info("=" * 50)
+    log.info("adjust start")
 
     ok = adjust_level(target_rank, target_level)
     return 0 if ok else 1

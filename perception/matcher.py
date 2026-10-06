@@ -1,21 +1,7 @@
-"""感知层底层匹配原语。
+"""感知层匹配原语。
 
-=====================================================================
-这层做什么
-=====================================================================
-把 OpenCV 模板匹配、颜色比对、Tesseract OCR 封装成几个干净函数，
-上层（pages.py / state.py）只调这些函数，不直接碰 cv2 / pytesseract。
-
-设计参考了 Alas 的 Button/Template 类，但做了简化：
-- Alas 的 Button 把 area/color/button 三元组绑死在对象里，适合硬编码流程
-- 我们的目标是输出结构化 JSON 给 LLM，所以匹配函数返回数据而不是布尔值
-- 模板匹配返回 (相似度, 位置)，让上层决定阈值怎么定
-
-=====================================================================
-为什么不用 cnocr（Alas 用的）
-=====================================================================
-Alas 用 cnocr 做游戏内文字识别，那是专门训练过的模型，对碧蓝航线的字体效果好。崩铁的字体风格不同，而且我们只需要认数字和少量中文
-（金币数、角色名），Tesseract 够用且零额外依赖。
+封装 OpenCV 模板匹配、颜色比对、OCR（RapidOCR + ddddocr）为统一接口。
+匹配函数返回数据而非布尔值，供上层结构化为 JSON 后交给 LLM 决策。
 """
 
 from __future__ import annotations
@@ -25,7 +11,7 @@ import numpy as np
 from PIL import Image
 from pathlib import Path
 
-# Tesseract 路径：项目自包含，不依赖外部安装
+# Tesseract 路径（备用，当前主力为 RapidOCR + ddddocr）
 _ROOT = Path(__file__).resolve().parent.parent
 _TESSERACT_PATH = str(_ROOT / "tools" / "tesseract" / "tesseract.exe")
 
@@ -201,20 +187,16 @@ def ocr(
     scale: float = 1.0,
     psm: int | None = None,
 ) -> str:
-    """对图片（或指定区域）做 OCR，返回识别出的文本。
+    """Tesseract OCR，返回识别文本。备用接口，当前主力为 RapidOCR。
 
     Args:
-        image: 截图 BGR 数组
-        area: (x1,y1,x2,y2)，指定区域；None 则整图
-        lang: Tesseract 语言包。chi_sim=简体中文，eng=英文，chi_sim+eng=混合
-        whitelist: 只认这些字符（如 "0123456789" 只认数字）
-        preprocess: 预处理方式，改善特定场景的识别率：
-            None     — 不处理（默认）
-            "invert" — 灰度+反转颜色（白字深底场景，如崩铁登录界面）
-            "binary" — 灰度+Otsu二值化（高对比度场景）
-            "invert_binary" — 灰度+反转+二值化（白字深底+降噪）
-        scale: 放大倍数（崩铁小字需放大2-3倍 Tesseract 才能识别）
-        psm: Tesseract 页面分割模式（None=默认, 6=统一文本块, 7=单行, 11=稀疏文本）
+        image: BGR 截图
+        area: (x1,y1,x2,y2)，None 则整图
+        lang: 语言包（chi_sim/eng/chi_sim+eng）
+        whitelist: 只认这些字符
+        preprocess: None/invert/binary/invert_binary
+        scale: 放大倍数
+        psm: 页面分割模式
     """
     region = crop(image, area) if area else image
 
@@ -252,7 +234,7 @@ def ocr(
 
 
 def ocr_digits(image: np.ndarray, area: tuple[int, int, int, int] | None = None) -> str:
-    """只认数字的 OCR，用于金币数、利息、等级等。"""
+    """数字 OCR，等价于 ocr_number()。"""
     return ocr_number(image, area)
 
 
@@ -298,10 +280,9 @@ def ocr_rapid_text(
     image: np.ndarray,
     area: tuple[int, int, int, int] | None = None,
 ) -> str:
-    """RapidOCR 区域识别，返回该区域内所有文本拼接成的字符串。
+    """RapidOCR 区域识别，返回区域内所有文本拼接字符串。
 
-    兼容旧 ocr() 接口，用于关键词检查等场景。
-    RapidOCR 自动检测文本位置和分行，比 Tesseract 更准确。
+    用于关键词检查等需要单区域文本的场景。
     """
     results = ocr_rapid(image, area=area)
     if not results:

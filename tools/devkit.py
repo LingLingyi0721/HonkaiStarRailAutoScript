@@ -1,29 +1,9 @@
-"""本项目访问模拟器的唯一入口（隔离层）。
+"""模拟器访问隔离层。
 
-======================================================================
-为什么需要这一层、它是怎么隔离的
-======================================================================
+三件套隔离：独立 adb 二进制 + 独立端口 5038 + 显式设备 -s 127.0.0.1:16416。
+防止与 Alas（端口 5037）互相 kill server。
 
-adb 的运作方式是三段式：
-
-    客户端(adb.exe)  ──TCP──▶  server(默认 127.0.0.1:5037)  ──TCP──▶  模拟器(16416)
-
-关键在于：**客户端发现 server 是"别的版本"时，会把 server 杀掉、重启一个自己的。**
-本机 Alas 用 adb 29 占着 5037，本项目用 adb 36。
-只要拿本项目这版 adb 去连 5037，就会把 Alas 的 server 干掉 —— 这是上次 Alas 掉线的根因。
-
-所以隔离靠三件套，任何一条破了都可能出问题：
-
-    1. 独立二进制：tools/adb/adb.exe     不借系统 / MuMu / Alas 的 adb
-    2. 独立端口  ：5038                   两个 server 进程各自独立，设备表互不可见
-    3. 显式设备  ：-s 127.0.0.1:16416     绝不裸调，杜绝"连到隔壁实例"
-
-本模块把这三条写死，调用方只管用。手动敲命令请用 `tools/adb.cmd`。
-
-======================================================================
-另一个必须记住的事实：wm size 会撒谎
-======================================================================
-模拟器**分辨率一律以 screencap 实际输出为准**（本模块的 screen_size()）。
+分辨率以 screencap 实际输出为准，wm size 不可信。
 """
 
 from __future__ import annotations
@@ -34,24 +14,18 @@ import subprocess
 import time
 from pathlib import Path
 
-# ── 隔离配置：改这里，全项目生效 ─────────────────────────────────────
+# ── 隔离配置 ───────────────────────────────────────────────────────
 _ROOT = Path(__file__).resolve().parent
 ADB_PATH = str(_ROOT / "adb" / "adb.exe")
-SERVER_PORT = "5038"  # ⚠️ Alas 占 5037，本项目绝不允许碰 5037
-SERIAL = "127.0.0.1:16416"  # ⚠️ MuMu 实例1「崩铁（给AI打货币战争用）」
-# 注意：adb 还会自动扫描 5554-5585 端口段，把同一台设备又列成 emulator-5556。
-# 那是同一个设备的另一个入口，本模块永远显式带 -s，不受它干扰。
+SERVER_PORT = "5038"  # Alas 占 5037，不可混用
+SERIAL = "127.0.0.1:16416"  # MuMu 实例1
 
 DEFAULT_TIMEOUT = 30.0
-LOG_DIR = _ROOT.parent / "log" / "error"  # 错误快照归档目录（抄 Alas）
+LOG_DIR = _ROOT.parent / "log" / "error"
 
 
 def _env() -> dict[str, str]:
-    """构造子进程环境变量，强制 adb 去连我们自己的 server 端口。
-
-    命令行里已经带了 -P，这里再设一遍环境变量做双保险：
-    即使有人从别处 import 本模块、或外部环境被污染，也不会跑偏。
-    """
+    """强制 adb 连接本项目独立端口，双保险。"""
     env = dict(os.environ)
     env["ANDROID_ADB_SERVER_PORT"] = SERVER_PORT
     return env
@@ -71,7 +45,7 @@ def _adb_once(*args: str, serial: str | None = SERIAL, binary: bool = False,
     return p.stdout if binary else p.stdout.decode("utf-8", "replace")
 
 
-# 哪些错误属于"连接问题"，值得重试 —— 其他错误（坐标无效、命令语法错）重试也没用
+# 连接类错误才值得重试
 _CONNECTION_ERRORS = ("device offline", "device not found", "connect",
                        "failed to start", "cannot connect")
 
@@ -84,11 +58,7 @@ def _is_connection_error(e: Exception) -> bool:
 
 def adb(*args: str, serial: str | None = SERIAL, binary: bool = False,
         timeout: float = DEFAULT_TIMEOUT, retry: int = 3):
-    """执行 adb 命令，连接类错误自动重连重试，逻辑错误直接报。
-
-    为什么区分错误类型：device offline 重连就好；但"点击坐标无效"
-    重试一百次也一样失败，盲目重试只会浪费时间。
-    """
+    """执行 adb 命令，连接类错误自动重连重试。"""
     last_err = None
     for attempt in range(retry):
         try:
@@ -106,12 +76,7 @@ def adb(*args: str, serial: str | None = SERIAL, binary: bool = False,
 
 
 def snapshot_error(tag: str, error: Exception) -> Path | None:
-    """失败时自动截图 + 保存上下文到 log/error/。
-
-    这是抄 Alas 的做法：出错时立刻留一份现场（截图 + 日志），
-    事后回放能看到"失败那一刻画面是什么"，对调试价值最高。
-    用 _adb_once 而不是 adb，避免快照本身也陷入重试循环。
-    """
+    """失败时截图 + 保存上下文到 log/error/。"""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y%m%d_%H%M%S")
     shot = None
@@ -145,16 +110,12 @@ def ensure_connected() -> str:
 # ── 画面 ────────────────────────────────────────────────────────────
 
 def screencap_png() -> bytes:
-    """截图，PNG 格式（设备端压缩，CPU 开销大，只在需要存盘时用）。"""
+    """截图 PNG 格式。"""
     return adb("exec-out", "screencap", "-p", binary=True)
 
 
 def screencap_raw() -> tuple[int, int, bytes]:
-    """截图，raw RGBA_8888。返回 (宽, 高, 像素数据)。
-
-    比 PNG 快得多：省掉设备端压缩，代价是数据量大（本地回环传输几乎免费）。
-    头部布局各版本不完全一致（12 或 16 字节），这里按长度自动判别。
-    """
+    """截图 raw RGBA_8888，返回 (宽, 高, 像素数据)。比 PNG 快。"""
     d = adb("exec-out", "screencap", binary=True)
     w, h, _fmt = struct.unpack("<III", d[:12])
     payload = d[12:]
@@ -166,7 +127,7 @@ def screencap_raw() -> tuple[int, int, bytes]:
 
 
 def screen_size() -> tuple[int, int]:
-    """屏幕真实分辨率。以截图为准 —— wm size 报的是假值。"""
+    """屏幕真实分辨率（以截图为准）。"""
     w, h, _ = screencap_raw()
     return w, h
 
@@ -174,7 +135,7 @@ def screen_size() -> tuple[int, int]:
 # ── 操作 ────────────────────────────────────────────────────────────
 
 def tap(x: int, y: int) -> None:
-    """点击。坐标系与截图一致（已用无障碍树 bounds 验证过，无需换算）。"""
+    """点击，坐标与截图一致。"""
     adb("shell", "input", "tap", str(x), str(y))
 
 
@@ -189,7 +150,7 @@ def keyevent(code: str) -> None:
 # ── 自检 ────────────────────────────────────────────────────────────
 
 def self_check() -> bool:
-    """打印隔离状态，确认没有踩到 Alas 的 5037。"""
+    """打印隔离状态。"""
     ok = True
     print(f"adb 二进制 : {ADB_PATH}")
     ver = adb("version").splitlines()

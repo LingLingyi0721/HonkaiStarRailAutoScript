@@ -1,7 +1,6 @@
-"""工具自包含部署：自动检测并部署 ddddocr 和 Tesseract 到 tools/ 目录。
+"""工具自包含部署：检测并部署 ddddocr、RapidOCR 到 tools/ 目录。
 
-运行脚本时自动调用，确保项目不依赖全局 pip 安装位置。
-也支持手动执行：python tools/ensure_tools.py
+main.py 启动时自动调用，也支持手动执行。
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ _TOOLS = _ROOT / "tools"
 
 
 def ensure_tesseract() -> bool:
-    """检测 Tesseract 是否在 tools/tesseract/ 下。"""
+    """检测 Tesseract 是否在 tools/tesseract/ 下（备用引擎）。"""
     exe = _TOOLS / "tesseract" / "tesseract.exe"
     if exe.exists():
         print("[OK] Tesseract 已部署:", exe)

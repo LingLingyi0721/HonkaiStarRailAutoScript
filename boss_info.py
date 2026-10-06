@@ -1,14 +1,8 @@
-"""崩坏：星穹铁道 货币战争 BOSS 信息脚本。
+"""货币战争 BOSS 信息识别。
 
-前置条件：已通过 navigate.py 进入词条首领一览界面（"下一步"）。
-
-输出信息（同时写入日志和 output/boss_info.json）：
-1. 当前段位+层级 — 如 "A8-10"
-2. 三位面文字 — 如 "第一位面：凛冬经贸联合体"
-3. 敌人难度+数值 — 如 "敌人难度：70"
-4. 词条文字 — 1~4段，第4段需滑动补全
-
-OCR引擎：RapidOCR（自动检测文本位置+分行，适合中文密集场景）
+前置：navigate.py 已进入词条首领一览界面。
+输出：段位层级、三位面、敌人难度、词条 → output/boss_info.json
+引擎：RapidOCR（全屏识别）+ ddddocr（数字）
 """
 
 from __future__ import annotations
@@ -30,7 +24,7 @@ from common import (
 
 CACHE_SCREENSHOT = Path("tmp/boss_info_screenshot.png")
 
-# 段位与词条数量映射（A0-A1:0, A2-A3:1, A4-A5:2, A6-A7:3, A8:4）
+# 段位与词条数量映射
 RANK_AFFIX_COUNT = {
     "A0": 0, "A1": 0,
     "A2": 1, "A3": 1,
@@ -39,10 +33,10 @@ RANK_AFFIX_COUNT = {
     "A8": 4,
 }
 
-# 区域 y 坐标范围（用于从 RapidOCR 全屏结果中筛选）
-DIMENSION_Y_RANGE = (490, 530)    # 三位面文字
+# y 坐标范围（从 RapidOCR 全屏结果中筛选）
+DIMENSION_Y_RANGE = (490, 530)    # 三位面
 DIFFICULTY_Y_RANGE = (640, 680)   # 敌人难度 + 词条
-AFFIX_X_START = 200               # 词条区域 x 起点（排除敌人难度区域）
+AFFIX_X_START = 200               # 词条 x 起点（排除敌人难度）
 
 # 滑动参数
 AFFIX_SWIPE_X1 = 745

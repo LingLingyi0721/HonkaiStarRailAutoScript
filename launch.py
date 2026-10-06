@@ -1,8 +1,4 @@
-"""崩坏：星穹铁道 启动脚本。
-
-职责：仅管理 adb 连接和启动游戏 app。
-登录界面确认、点击进入、游戏界面确认等全部交给 navigate.py。
-"""
+"""启动游戏 app。仅管理 adb 连接和 am start，其余交给 navigate.py。"""
 
 from __future__ import annotations
 
