@@ -125,12 +125,8 @@ def get_affixes(image: np.ndarray) -> list[str]:
     parts = ocr_affix(image)
     log.info(f"原始识别: {parts} (共{len(parts)}段)")
 
-    if not parts:
-        log.warning("词条识别失败：未识别到任何可信内容")
-        return []
-
+    # 即使原始识别为空，也执行滑动循环（词条可能全部被乱码遮挡）
     # 执行左滑+右滑循环两次，用投票机制取最可信内容
-    # 不管原始识别出几段，都可能存在被乱码遮挡的词条，需要滑动多角度识别
     x1, y1, x2, y2 = AFFIX_AREA
     mid_y = (y1 + y2) // 2
 
