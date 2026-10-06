@@ -162,9 +162,11 @@ def check_keywords(log: logging.Logger, image: np.ndarray,
         padded = (max(0, x1-PAD_X), max(0, y1-PAD_Y),
                   min(1280, x2+PAD_X), min(720, y2+PAD_Y))
         if padded not in ocr_cache:
-            ocr_cache[padded] = ocr_rapid_text(image, area=padded)
+            text = ocr_rapid_text(image, area=padded)
+            ocr_cache[padded] = text
+            log.info(f"ocr {obj_id} area={padded}: \"{text}\"")
         if kw_def["keyword"] in ocr_cache[padded]:
-            log.info(f"check {obj_id}: found")
+            log.info(f"check {obj_id}: found (keyword=\"{kw_def['keyword']}\")")
             return True
     log.info(f"check {obj_id}: not found")
     return False
@@ -178,12 +180,26 @@ def check_template(log: logging.Logger, image: np.ndarray,
     日志：check <obj_id>: found (sim=0.xx) / check <obj_id>: not found (best sim=0.xx)
     """
     from perception.templates import template_lib
+    from perception.matcher import template_match, crop
     template_lib.reload()
-    name, sim = template_lib.match(image, category, area=area)
-    if name is not None:
-        log.info(f"check {obj_id}: found (sim={sim:.2f})")
+    templates = template_lib.categories.get(category, {})
+    if not templates:
+        log.warning(f"check {obj_id}: no templates in category \"{category}\"")
+        return False
+    search_area = crop(image, area)
+    log.info(f"template {obj_id}: area={area}, search={search_area.shape[1]}x{search_area.shape[0]}, "
+             f"templates={list(templates.keys())}")
+    best_name: str | None = None
+    best_sim = 0.0
+    for name, template in templates.items():
+        sim, _ = template_match(template, image, area=area, similarity=0.0)
+        log.info(f"template {obj_id}: {name} sim={sim:.4f} ({template.shape[1]}x{template.shape[0]})")
+        if sim > best_sim:
+            best_name, best_sim = name, sim
+    if best_name is not None and best_sim >= 0.80:
+        log.info(f"check {obj_id}: found ({best_name} sim={best_sim:.2f})")
         return True
-    log.info(f"check {obj_id}: not found (best sim={sim:.2f})")
+    log.info(f"check {obj_id}: not found (best={best_name} sim={best_sim:.2f})")
     return False
 
 
@@ -249,9 +265,14 @@ def proceed_to_next(
         return check_keywords(log, image, next_keywords, obj_id)
 
     if timeout is not None:
+        log.info(f"proceed {obj_id}: timeout={timeout}s, interval={interval}s")
         start = time.time()
+        attempt = 0
         while time.time() - start < timeout:
+            attempt += 1
             t0 = time.time()
+            elapsed = time.time() - start
+            log.info(f"proceed {obj_id}: check #{attempt} ({elapsed:.0f}s/{timeout}s)")
             image = screenshot(log, cache_path, quiet=True)
             if image is not None and _check(image):
                 return True
@@ -263,15 +284,19 @@ def proceed_to_next(
                            {"obj": obj_id, "timeout": timeout}, cached)
         return False
 
+    log.info(f"proceed {obj_id}: max_rounds={max_rounds}, max_checks={max_checks}, interval={interval}s")
     for round_num in range(1, max_rounds + 1):
-        for _ in range(max_checks):
+        log.info(f"proceed {obj_id}: round {round_num}/{max_rounds}")
+        for check_num in range(1, max_checks + 1):
             t0 = time.time()
+            log.info(f"proceed {obj_id}: check {check_num}/{max_checks}")
             image = screenshot(log, cache_path, quiet=True)
             if image is not None and _check(image):
                 return True
             time.sleep(max(0.0, interval - (time.time() - t0)))
 
         if detect_switch and tap_pos is not None:
+            log.info(f"proceed {obj_id}: detect switch, tap {tap_pos}")
             before = _capture_corner(log)
             tap(log, *tap_pos)
             time.sleep(2.0)

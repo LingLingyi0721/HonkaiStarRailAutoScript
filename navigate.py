@@ -98,6 +98,7 @@ def run(target_rank_level: str | None = None) -> int:
     start_time = time.time()
 
     # ── 1. 等待登录界面（持续识别，超时120秒）→ 点击屏幕中央 ──
+    log.info("stage 1: wait login")
     if not proceed_to_next(
         log, LOGIN_KEYWORDS, None, "login",
         cache_path=CACHE_SCREENSHOT, timeout=120,
@@ -107,6 +108,7 @@ def run(target_rank_level: str | None = None) -> int:
     time.sleep(2.0)
 
     # ── 2. 等待游戏主界面（持续识别，超时120秒）→ 点击指南入口 ──
+    log.info("stage 2: wait main")
     if not proceed_to_next(
         log, GAME_KEYWORDS, None, "main",
         cache_path=CACHE_SCREENSHOT, timeout=120,
@@ -116,6 +118,7 @@ def run(target_rank_level: str | None = None) -> int:
     time.sleep(2.0)
 
     # ── 3. 等待指南界面 → 点击旷宇纷争入口 ──
+    log.info("stage 3: wait guide")
     if not proceed_to_next(
         log, GUIDE_KEYWORDS, GUIDE_ENTRY, "guide",
         cache_path=CACHE_SCREENSHOT,
@@ -125,11 +128,13 @@ def run(target_rank_level: str | None = None) -> int:
     time.sleep(2.0)
 
     # ── 4. 等待旷宇纷争界面 → 点击前往参与 ──
+    log.info("stage 4: wait war")
     if not proceed_to_next(
         log, WAR_KEYWORDS, WAR_ENTRY, "war",
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
+    log.info("stage 4b: wait enter")
     if not proceed_to_next(
         log, ENTER_KEYWORDS, None, "enter",
         cache_path=CACHE_SCREENSHOT,
@@ -139,6 +144,7 @@ def run(target_rank_level: str | None = None) -> int:
     time.sleep(2.0)
 
     # ── 5. 等待货币战争主界面 → 点击开始按钮 ──
+    log.info("stage 5: wait war_main")
     if not proceed_to_next(
         log, None, ENTER_TAP, "war_main",
         cache_path=CACHE_SCREENSHOT,
@@ -149,6 +155,7 @@ def run(target_rank_level: str | None = None) -> int:
     time.sleep(2.0)
 
     # ── 6. 等待模式选择界面 → 点击进入标准博弈 ──
+    log.info("stage 6: wait mode")
     if not proceed_to_next(
         log, None, START_TAP, "mode",
         cache_path=CACHE_SCREENSHOT,
@@ -159,6 +166,7 @@ def run(target_rank_level: str | None = None) -> int:
     time.sleep(2.0)
 
     # ── 7. 等待标准博弈界面 → 记录难度 → 点击开始对局 ──
+    log.info("stage 7: wait rank")
     if not proceed_to_next(
         log, None, MODE_ENTER_TAP, "rank",
         cache_path=CACHE_SCREENSHOT,
@@ -167,6 +175,7 @@ def run(target_rank_level: str | None = None) -> int:
         return 1
 
     # 记录难度信息
+    log.info("stage 7b: read rank level")
     global CURRENT_RANK_LEVEL
     image = screenshot(log, CACHE_SCREENSHOT)
     rank_info = None
@@ -180,6 +189,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     # 段位层级切换
     if target_rank_level and rank_info and rank_info["rank"] and rank_info["level"]:
+        log.info(f"stage 7c: adjust {target_rank_level}")
         target_rank, target_level_str = target_rank_level.split("-", 1)
         target_level = int(target_level_str)
         current_global = rank_to_global(rank_info["rank"], int(rank_info["level"]))
@@ -204,10 +214,12 @@ def run(target_rank_level: str | None = None) -> int:
             log.info(f"no adjust needed: {target_rank_level}")
 
     # 点击开始对局
+    log.info("stage 7d: tap start battle")
     tap(log, *START_BATTLE_TAP)
     time.sleep(2.0)
 
     # ── 8. 等待词条首领一览界面 → 结束 ──
+    log.info("stage 8: wait boss")
     if not proceed_to_next(
         log, NEXT_STEP_KEYWORDS, START_BATTLE_TAP, "boss",
         cache_path=CACHE_SCREENSHOT,
