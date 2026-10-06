@@ -36,6 +36,48 @@ LEVEL_AREA = (188, 303, 282, 374)
 LEVEL_HIGH_THRESHOLD = 10
 DEFAULT_HIGH_RANK = "A8"
 
+# 段位-层级映射：每个段位的最大层级数
+RANK_LEVELS = {
+    "A0": 3, "A1": 3, "A2": 3,
+    "A3": 5, "A4": 5,
+    "A5": 7, "A6": 7,
+    "A7": 9,
+    "A8": 50,
+}
+
+# 段位顺序列表
+RANK_ORDER = ["A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]
+
+# 层级切换点击区域（标准博弈界面）
+LEVEL_UP_AREA = (625, 95, 650, 115)    # 增加层级
+LEVEL_DOWN_AREA = (625, 530, 650, 555)  # 减少层级
+
+
+def rank_to_global(rank: str, level: int) -> int:
+    """将段位+层级转换为全局层级编号（从1开始连续）。
+
+    例：A3-3 → 3+3+3+3 = 12（A0~A2各3层，A3第3层）
+    """
+    pos = 0
+    for r in RANK_ORDER:
+        if r == rank:
+            return pos + level
+        pos += RANK_LEVELS[r]
+    return pos + level
+
+
+def global_to_rank(global_level: int) -> tuple[str, int]:
+    """将全局层级编号转换为段位+层级。
+
+    例：23 → A5-4（3+3+3+5+5=19，23-19=4，落在A5第4层）
+    """
+    pos = 0
+    for r in RANK_ORDER:
+        if global_level <= pos + RANK_LEVELS[r]:
+            return r, global_level - pos
+        pos += RANK_LEVELS[r]
+    return "A8", global_level - pos
+
 
 # ── 日志 ────────────────────────────────────────────────────────────
 
