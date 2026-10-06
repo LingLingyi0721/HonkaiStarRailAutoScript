@@ -253,7 +253,7 @@ def ocr(
 
 def ocr_digits(image: np.ndarray, area: tuple[int, int, int, int] | None = None) -> str:
     """只认数字的 OCR，用于金币数、利息、等级等。"""
-    return ocr(image, area, lang="eng", whitelist="0123456789")
+    return ocr_number(image, area)
 
 
 def ocr_number(image: np.ndarray, area: tuple[int, int, int, int] | None = None) -> str:
@@ -292,6 +292,21 @@ def ocr_rapid(
     engine = _get_rapidocr()
     result, _ = engine(region)
     return result if result else []
+
+
+def ocr_rapid_text(
+    image: np.ndarray,
+    area: tuple[int, int, int, int] | None = None,
+) -> str:
+    """RapidOCR 区域识别，返回该区域内所有文本拼接成的字符串。
+
+    兼容旧 ocr() 接口，用于关键词检查等场景。
+    RapidOCR 自动检测文本位置和分行，比 Tesseract 更准确。
+    """
+    results = ocr_rapid(image, area=area)
+    if not results:
+        return ""
+    return "".join(text for _, text, _ in results)
 
 
 # ── 区域工具 ────────────────────────────────────────────────────────

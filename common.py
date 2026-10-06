@@ -181,12 +181,9 @@ def check_keywords(log: logging.Logger, image: np.ndarray, kw_defs: list[dict]) 
 
     kw_defs 格式：[{"keyword": "xxx", "area": (x1,y1,x2,y2), "preprocess": None, "scale": 1.0, "psm": 6}]
     """
-    from perception.matcher import ocr
+    from perception.matcher import ocr_rapid_text
     for kw_def in kw_defs:
-        text = ocr(image, area=kw_def["area"], lang="chi_sim+eng",
-                   preprocess=kw_def.get("preprocess"),
-                   scale=kw_def.get("scale", 1.0),
-                   psm=kw_def.get("psm"))
+        text = ocr_rapid_text(image, area=kw_def["area"])
         if kw_def["keyword"] in text:
             return True
     return False

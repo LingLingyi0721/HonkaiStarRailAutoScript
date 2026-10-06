@@ -38,7 +38,7 @@ from typing import Any
 
 from perception.matcher import (
     load_image, template_match, template_match_multi, match_binary,
-    get_color, color_similar, ocr, ocr_digits, crop, area_center
+    get_color, color_similar, ocr_rapid_text, ocr_digits, crop, area_center
 )
 from perception.assets import (
     get_template, get_area, all_templates, TemplateDef, AreaDef
@@ -132,7 +132,7 @@ def extract_text_from_areas(
         if digits_only:
             text = ocr_digits(image, area_def.area)
         else:
-            text = ocr(image, area_def.area)
+            text = ocr_rapid_text(image, area_def.area)
         if text:
             texts[name] = text
     return texts

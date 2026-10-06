@@ -96,25 +96,20 @@ def tap_center() -> None:
 # ── OCR 识别 ───────────────────────────────────────────────────────
 
 def check_login_screen(image: np.ndarray) -> bool:
-    from perception.matcher import ocr
+    from perception.matcher import ocr_rapid_text
 
     # 主关键词
-    text = ocr(image, area=LOGIN_PRIMARY["area"], lang="chi_sim+eng",
-               preprocess=LOGIN_PRIMARY.get("preprocess"),
-               scale=LOGIN_PRIMARY.get("scale", 1.0),
-               psm=LOGIN_PRIMARY.get("psm"))
+    text = ocr_rapid_text(image, area=LOGIN_PRIMARY["area"])
     primary_hit = LOGIN_PRIMARY["keyword"] in text
 
     # 辅助关键词（同区域共享一次 OCR）
     area_groups: dict[tuple, list[dict]] = {}
     for kw_def in LOGIN_AUXILIARY:
-        key = (kw_def["area"], kw_def.get("preprocess"),
-               kw_def.get("scale", 1.0), kw_def.get("psm"))
+        key = kw_def["area"]
         area_groups.setdefault(key, []).append(kw_def)
 
-    for (area, preprocess, scale, psm), kw_list in area_groups.items():
-        text = ocr(image, area=area, lang="chi_sim+eng",
-                   preprocess=preprocess, scale=scale, psm=psm)
+    for area, kw_list in area_groups.items():
+        text = ocr_rapid_text(image, area=area)
         for kw_def in kw_list:
             if kw_def["keyword"] in text:
                 pass
@@ -125,12 +120,9 @@ def check_login_screen(image: np.ndarray) -> bool:
 
 
 def check_game_screen(image: np.ndarray) -> bool:
-    from perception.matcher import ocr
+    from perception.matcher import ocr_rapid_text
     for kw_def in GAME_KEYWORDS:
-        text = ocr(image, area=kw_def["area"], lang="chi_sim+eng",
-                   preprocess=kw_def.get("preprocess"),
-                   scale=kw_def.get("scale", 1.0),
-                   psm=kw_def.get("psm"))
+        text = ocr_rapid_text(image, area=kw_def["area"])
         if kw_def["keyword"] in text:
             log.info("游戏界面确认")
             return True
