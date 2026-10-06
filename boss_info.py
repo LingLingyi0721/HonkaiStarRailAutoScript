@@ -53,10 +53,12 @@ AFFIX_SWIPE_Y = 655
 log = setup_logging("boss_info")
 
 
-# ── 词条词库匹配 ───────────────────────────────────────────────────
+# ── 词库匹配 ───────────────────────────────────────────────────────
 
 _AFFIX_DICT_PATH = Path(__file__).resolve().parent / "assets" / "affix_dict.json"
+_FACTION_DICT_PATH = Path(__file__).resolve().parent / "assets" / "boss_factions.json"
 _affix_dict_cache: dict | None = None
+_faction_dict_cache: list[str] | None = None
 
 
 def _load_affix_dict() -> dict:
@@ -69,51 +71,15 @@ def _load_affix_dict() -> dict:
     return _affix_dict_cache
 
 
-def match_affix(text: str) -> str:
-    """用词库匹配修正OCR误识别的词条文字。
-
-    匹配规则：
-    - 以"侵蚀·"开头 → 在侵蚀词缀列表中找最接近的匹配
-    - 不以"侵蚀·"开头 → 在常规词缀列表中找最接近的匹配
-    - 不存在其他形式的前缀和后缀
-    - 字数不恒定（有4字、6字等）
-
-    匹配方式：编辑距离（Levenshtein distance），阈值<=2则替换为标准名称。
-    """
-    import json
-
-    # 先清洗：去掉非中文和非·字符
-    cleaned = ''.join(c for c in text if '\u4e00' <= c <= '\u9fff' or c == '·')
-
-    if len(cleaned) < 2:
-        return cleaned
-
-    affix_dict = _load_affix_dict()
-    erode_prefix = affix_dict["侵蚀前缀"]  # "侵蚀·"
-
-    # 判断是侵蚀词缀还是常规词缀
-    if cleaned.startswith(erode_prefix):
-        candidates = affix_dict["侵蚀词缀"]
-    else:
-        candidates = affix_dict["常规词缀"]
-
-    # 用编辑距离找最接近的匹配
-    best_match = None
-    best_distance = 999
-    for candidate in candidates:
-        dist = _levenshtein(cleaned, candidate)
-        if dist < best_distance:
-            best_distance = dist
-            best_match = candidate
-
-    # 编辑距离<=2则替换为标准名称，否则保留清洗后的文本
-    if best_match and best_distance <= 2:
-        if best_match != cleaned:
-            log.info(f"  词库匹配: {repr(cleaned)} -> {repr(best_match)} (距离={best_distance})")
-        return best_match
-    else:
-        log.info(f"  词库未匹配: {repr(cleaned)} (最近={repr(best_match)} 距离={best_distance})")
-        return cleaned
+def _load_faction_dict() -> list[str]:
+    """懒加载BOSS阵营词库。"""
+    global _faction_dict_cache
+    if _faction_dict_cache is None:
+        import json
+        with open(_FACTION_DICT_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        _faction_dict_cache = data["boss_factions"]
+    return _faction_dict_cache
 
 
 def _levenshtein(s1: str, s2: str) -> int:
@@ -132,6 +98,55 @@ def _levenshtein(s1: str, s2: str) -> int:
             curr_row.append(min(insertions, deletions, substitutions))
         prev_row = curr_row
     return prev_row[-1]
+
+
+def _match_dict(cleaned: str, candidates: list[str], label: str) -> str:
+    """通用词库匹配：编辑距离<=2则替换为标准名称。"""
+    if len(cleaned) < 2:
+        return cleaned
+
+    best_match = None
+    best_distance = 999
+    for candidate in candidates:
+        dist = _levenshtein(cleaned, candidate)
+        if dist < best_distance:
+            best_distance = dist
+            best_match = candidate
+
+    if best_match and best_distance <= 2:
+        if best_match != cleaned:
+            log.info(f"  {label}匹配: {repr(cleaned)} -> {repr(best_match)} (距离={best_distance})")
+        return best_match
+    else:
+        log.info(f"  {label}未匹配: {repr(cleaned)} (最近={repr(best_match)} 距离={best_distance})")
+        return cleaned
+
+
+def match_faction(text: str) -> str:
+    """用阵营词库匹配修正OCR误识别的BOSS阵营名称。"""
+    cleaned = ''.join(c for c in text if '\u4e00' <= c <= '\u9fff')
+    return _match_dict(cleaned, _load_faction_dict(), "阵营")
+
+
+def match_affix(text: str) -> str:
+    """用词库匹配修正OCR误识别的词条文字。
+
+    匹配规则：
+    - 以"侵蚀·"开头 → 在侵蚀词缀列表中找最接近的匹配
+    - 不以"侵蚀·"开头 → 在常规词缀列表中找最接近的匹配
+    - 不存在其他形式的前缀和后缀
+    - 字数不恒定（有4字、6字等）
+    """
+    # 先清洗：去掉非中文和非·字符
+    cleaned = ''.join(c for c in text if '\u4e00' <= c <= '\u9fff' or c == '·')
+
+    affix_dict = _load_affix_dict()
+    erode_prefix = affix_dict["侵蚀前缀"]  # "侵蚀·"
+
+    if cleaned.startswith(erode_prefix):
+        return _match_dict(cleaned, affix_dict["侵蚀词缀"], "词库")
+    else:
+        return _match_dict(cleaned, affix_dict["常规词缀"], "词库")
 
 
 # ── RapidOCR 识别 ──────────────────────────────────────────────────
@@ -176,12 +191,14 @@ def get_dimensions(image: np.ndarray) -> dict:
     for x, y, text, conf in dim_items:
         log.info(f"  x={x:.0f} y={y:.0f} conf={conf:.2f} text={repr(text)}")
 
-    # 按位置分配 dimension1/2/3
+    # 按位置分配 dimension1/2/3，用阵营词库匹配修正
     keys = ["dimension1", "dimension2", "dimension3"]
     results_dict = {}
     for i, key in enumerate(keys):
         if i < len(dim_items):
-            results_dict[key] = dim_items[i][2]  # text
+            raw_text = dim_items[i][2]
+            matched = match_faction(raw_text)
+            results_dict[key] = matched
         else:
             results_dict[key] = ""
             log.warning(f"{key} 识别失败")
