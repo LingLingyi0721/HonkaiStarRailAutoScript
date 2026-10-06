@@ -210,15 +210,34 @@ def proceed_to_next(
     max_checks: int = 5,
     interval: float = 3.0,
     max_rounds: int = 3,
+    timeout: float | None = None,
 ) -> bool:
     """等待 next_keywords 出现，未出现则点击推进并检测界面切换。
 
-    每轮截图检查最多 max_checks 次（周期 interval 秒），共循环 max_rounds 轮：
+    timeout 不为 None 时进入持续识别模式：每 interval 秒识别一次，
+    直到命中或累计超时，不点击、不检测切换（用于启动/加载阶段）。
+
+    否则每轮截图检查最多 max_checks 次（周期 interval 秒），共循环 max_rounds 轮：
     - 命中 → 返回 True
     - 本轮未命中且 detect_switch=True → 截左上角 → 点击 → 再截 → 比对相似度
       - 相似度 < SWITCH_THRESHOLD → 界面已切换，返回 True
     - detect_switch=False（"点击进入"阶段）只重复识别，不点击
     """
+    if timeout is not None:
+        start = time.time()
+        while time.time() - start < timeout:
+            t0 = time.time()
+            image = screenshot(log, cache_path, quiet=True)
+            if image is not None and check_keywords(log, image, next_keywords, obj_id):
+                return True
+            time.sleep(max(0.0, interval - (time.time() - t0)))
+        log.error(f"proceed failed (timeout {timeout}s): {obj_id}")
+        if cache_path and cache_path.exists():
+            cached = cv2.imread(str(cache_path))
+            snapshot_error(log, "proceed_failed", f"timeout after {timeout}s: {obj_id}",
+                           {"obj": obj_id, "timeout": timeout}, cached)
+        return False
+
     for round_num in range(1, max_rounds + 1):
         for _ in range(max_checks):
             t0 = time.time()

@@ -2,7 +2,8 @@
 
 前置：launch.py 已启动游戏。
 流程：登录 → 主界面 → 指南 → 旷宇纷争 → 货币战争 → 标准博弈 → 词条首领
-兜底：proceed_to_next() 每 3 秒识别一次最多 5 次；未命中则点击并比对左上角 40x40 区域判断界面是否切换。
+兜底：启动段（登录/主界面）持续识别至超时 120 秒；
+导航段（指南起）每 3 秒识别一次共 5 次，未命中则点击并比对左上角 40x40 区域判断界面是否切换。
 """
 
 from __future__ import annotations
@@ -102,19 +103,19 @@ def run(target_rank_level: str | None = None) -> int:
 
     start_time = time.time()
 
-    # ── 1. 等待登录界面 → 点击屏幕中央 ──
+    # ── 1. 等待登录界面（持续识别，超时120秒）→ 点击屏幕中央 ──
     if not proceed_to_next(
         log, LOGIN_KEYWORDS, None, "login",
-        cache_path=CACHE_SCREENSHOT, detect_switch=False,
+        cache_path=CACHE_SCREENSHOT, timeout=120,
     ):
         return 1
     tap(log, *SCREEN_CENTER)
     time.sleep(2.0)
 
-    # ── 2. 等待游戏主界面 → 点击指南入口 ──
+    # ── 2. 等待游戏主界面（持续识别，超时120秒）→ 点击指南入口 ──
     if not proceed_to_next(
         log, GAME_KEYWORDS, None, "main",
-        cache_path=CACHE_SCREENSHOT,
+        cache_path=CACHE_SCREENSHOT, timeout=120,
     ):
         return 1
     tap(log, *GUIDE_ENTRY)
