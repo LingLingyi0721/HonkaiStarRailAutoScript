@@ -269,9 +269,12 @@ def run() -> int:
     try:
         import navigate
         if navigate.CURRENT_RANK_LEVEL:
-            # navigate.py 传递的格式如 "A8-50"
+            # navigate.py 传递的格式如 "A8-50" 或 "A3"（层级OCR失败时只有段位）
             combined = navigate.CURRENT_RANK_LEVEL
-            rank_name, level_text = combined.split("-", 1)
+            if "-" in combined:
+                rank_name, level_text = combined.split("-", 1)
+            else:
+                rank_name, level_text = combined, None
             rank_info = {"rank": rank_name, "level": level_text, "combined": combined}
             log.info(f"从 navigate 模块获取: {combined}")
     except (ImportError, AttributeError):

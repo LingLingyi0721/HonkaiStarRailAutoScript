@@ -155,39 +155,44 @@ def check_keywords(log: logging.Logger, image: np.ndarray, kw_defs: list[dict]) 
 def get_rank_level(image: np.ndarray, log: logging.Logger) -> dict | None:
     """识别当前段位和层级，返回字典 {rank, level, combined}。
 
+    段位徽章用模板匹配（可靠），层级数字用OCR（可能失败）。
     层级数字超过 LEVEL_HIGH_THRESHOLD 时默认段位为A8，跳过模板匹配。
-    combined 格式如 "A8-50"。
+    combined 格式如 "A8-50"。层级OCR失败时 combined 只含段位。
     """
     from perception.matcher import ocr
     from perception.templates import template_lib
 
-    # 先识别层级数字
+    # 先识别层级数字（OCR可能失败，不阻断流程）
     level_text = ocr(image, area=LEVEL_AREA, lang="eng",
                      whitelist="0123456789",
                      preprocess=None, scale=1.0, psm=6)
     level_text = level_text.strip()
-
-    if not level_text or not level_text.isdigit():
+    level_ok = level_text and level_text.isdigit()
+    if not level_ok:
         log.warning("层级数字识别失败: %s" % repr(level_text))
-        return None
 
-    level_num = int(level_text)
-
-    # 层级超过阈值则默认A8，否则模板匹配段位徽章
-    if level_num > LEVEL_HIGH_THRESHOLD:
+    # 段位徽章模板匹配
+    rank_name: str | None = None
+    if level_ok and int(level_text) > LEVEL_HIGH_THRESHOLD:
         rank_name = DEFAULT_HIGH_RANK
-        log.info("段位: %s (层级%d>%d, 默认判定)" % (rank_name, level_num, LEVEL_HIGH_THRESHOLD))
+        log.info("段位: %s (层级%d>%d, 默认判定)" % (rank_name, int(level_text), LEVEL_HIGH_THRESHOLD))
     else:
         template_lib.reload()
         rank_name, rank_sim = template_lib.match(image, "rank", area=RANK_BADGE_AREA)
         if rank_name is None:
             log.warning("段位徽章匹配失败 (最高相似度=%.4f)" % rank_sim)
-            return None
-        log.info("段位: %s (相似度=%.4f)" % (rank_name, rank_sim))
+        else:
+            log.info("段位: %s (相似度=%.4f)" % (rank_name, rank_sim))
 
-    log.info("层级: %s" % level_text)
-    combined = "%s-%s" % (rank_name, level_text)
-    return {"rank": rank_name, "level": level_text, "combined": combined}
+    if rank_name is None and not level_ok:
+        return None
+
+    if level_ok:
+        log.info("层级: %s" % level_text)
+        combined = "%s-%s" % (rank_name, level_text)
+    else:
+        combined = rank_name or ""
+    return {"rank": rank_name, "level": level_text if level_ok else None, "combined": combined}
 
 
 # ── 结构化输出 ─────────────────────────────────────────────────────
