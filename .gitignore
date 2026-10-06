@@ -28,10 +28,6 @@ Desktop.ini
 .DS_Store
 NUL
 
-# 工具二进制（太大，不纳入版本控制）
-tools/adb/
-tools/tesseract/
-
 # CodeArts
 .codeartsdoer/
 
@@ -39,3 +35,5 @@ tools/tesseract/
 snap.py
 snap_rank.py
 bench_device.py
+# ddddocr ONNX 模型文件（部署脚本自动从 pip 复制）
+tools/ddddocr/*.onnx

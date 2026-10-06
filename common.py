@@ -155,17 +155,15 @@ def check_keywords(log: logging.Logger, image: np.ndarray, kw_defs: list[dict]) 
 def get_rank_level(image: np.ndarray, log: logging.Logger) -> dict | None:
     """识别当前段位和层级，返回字典 {rank, level, combined}。
 
-    段位徽章用模板匹配（可靠），层级数字用OCR（可能失败）。
+    段位徽章用模板匹配（可靠），层级数字用 ddddocr 数字特化引擎。
     层级数字超过 LEVEL_HIGH_THRESHOLD 时默认段位为A8，跳过模板匹配。
     combined 格式如 "A8-50"。层级OCR失败时 combined 只含段位。
     """
-    from perception.matcher import ocr
+    from perception.matcher import ocr_number
     from perception.templates import template_lib
 
-    # 先识别层级数字（OCR可能失败，不阻断流程）
-    level_text = ocr(image, area=LEVEL_AREA, lang="eng",
-                     whitelist="0123456789",
-                     preprocess=None, scale=1.0, psm=6)
+    # 用 ddddocr 识别层级数字（数字特化引擎，对游戏UI大字体识别率高）
+    level_text = ocr_number(image, area=LEVEL_AREA)
     level_text = level_text.strip()
     level_ok = level_text and level_text.isdigit()
     if not level_ok:

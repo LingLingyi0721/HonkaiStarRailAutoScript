@@ -14,8 +14,7 @@
 =====================================================================
 为什么不用 cnocr（Alas 用的）
 =====================================================================
-Alas 用 cnocr 做游戏内文字识别，那是专门训练过的模型，对碧蓝航线
-的字体效果好。崩铁的字体风格不同，而且我们只需要认数字和少量中文
+Alas 用 cnocr 做游戏内文字识别，那是专门训练过的模型，对碧蓝航线的字体效果好。崩铁的字体风格不同，而且我们只需要认数字和少量中文
 （金币数、角色名），Tesseract 够用且零额外依赖。
 """
 
@@ -153,6 +152,7 @@ def match_binary(
 # ── OCR ─────────────────────────────────────────────────────────────
 
 _pytesseract = None
+_ddddocr_engine = None
 
 
 def _get_tesseract():
@@ -163,6 +163,19 @@ def _get_tesseract():
         pytesseract.pytesseract.tesseract_cmd = _TESSERACT_PATH
         _pytesseract = pytesseract
     return _pytesseract
+
+
+def _get_ddddocr():
+    """懒加载 ddddocr 数字特化引擎，优先使用 tools/ 下自包含版本。"""
+    global _ddddocr_engine
+    if _ddddocr_engine is None:
+        import sys
+        tools_dir = str(_ROOT / "tools")
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        import ddddocr
+        _ddddocr_engine = ddddocr.DdddOcr(show_ad=False)
+    return _ddddocr_engine
 
 
 def ocr(
@@ -227,6 +240,19 @@ def ocr(
 def ocr_digits(image: np.ndarray, area: tuple[int, int, int, int] | None = None) -> str:
     """只认数字的 OCR，用于金币数、利息、等级等。"""
     return ocr(image, area, lang="eng", whitelist="0123456789")
+
+
+def ocr_number(image: np.ndarray, area: tuple[int, int, int, int] | None = None) -> str:
+    """数字特化 OCR（ddddocr引擎），用于层级数字、敌人难度等纯数字场景。
+
+    ddddocr 对游戏UI大字体数字识别率远超 Tesseract，无需预处理。
+    返回纯数字字符串，识别失败返回空字符串。
+    """
+    region = crop(image, area) if area else image
+    gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+    engine = _get_ddddocr()
+    result = engine.classification(gray)
+    return result.strip()
 
 
 # ── 区域工具 ────────────────────────────────────────────────────────

@@ -61,7 +61,14 @@ def main() -> int:
                         help="从指定阶段开始（跳过之前的阶段）")
     parser.add_argument("--only", dest="only", default=None,
                         help="只跑指定阶段")
+    parser.add_argument("--skip-tools-check", action="store_true",
+                        help="跳过工具自包含检测")
     args = parser.parse_args()
+
+    # 工具自包含检测与部署
+    if not args.skip_tools_check:
+        from tools.ensure_tools import ensure_all
+        ensure_all()
 
     # 确定要跑的阶段列表
     if args.only:
