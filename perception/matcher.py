@@ -68,6 +68,9 @@ def template_match(
         location: template 左上角在 image 中的坐标 (x, y)
     """
     search_area = crop(image, area) if area else image
+    # 搜索区域必须 >= 模板尺寸，否则 matchTemplate 会 assertion error
+    if search_area.shape[0] < template.shape[0] or search_area.shape[1] < template.shape[1]:
+        return 0.0, (0, 0)
     result = cv2.matchTemplate(search_area, template, cv2.TM_CCOEFF_NORMED)
     _, sim, _, loc = cv2.minMaxLoc(result)
 
