@@ -81,7 +81,7 @@ python main.py --only battle
 
 | 项目 | 借鉴内容 |
 |---|---|
-| [AzurLaneAutoScript](https://github.com/LmeZero/AzurLaneAutoScript) | 设备层架构、重试机制、错误快照设计 |
+| [AzurLaneAutoScript](https://github.com/LmeSzinc/AzurLaneAutoScript) | 设备层架构、重试机制、错误快照设计 |
 | [StarRailCopilot](https://github.com/LmeSzinc/StarRailCopilot) | 崩铁适配思路、路线定义理念 |
 
 ---
