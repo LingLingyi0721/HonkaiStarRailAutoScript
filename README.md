@@ -94,9 +94,9 @@ Specifically designed for the "Monetary War" game mode (auto-chess + Roguelike),
 
 ```
 Orchestration   main.py stage coordinator
-Decision        LLM                          ← New
-Tools           click / swipe / wait / query  → wrapped as tools
-Perception      Screenshot + OCR / Template Match → structured state
+Decision        LLM
+Tools           click / swipe / wait / query
+Perception      Screenshot + OCR / Template Match
 Device          ADB / Emulator IPC
 ```
 
@@ -125,10 +125,3 @@ python main.py --from navigate
 # Run only one stage
 python main.py --only battle
 ```
-
-### References
-
-| Project | What we borrowed |
-|---|---|
-| [AzurLaneAutoScript](https://github.com/LmeZero/AzurLaneAutoScript) | Device layer architecture, retry mechanism, error snapshot design |
-| [StarRailCopilot](https://github.com/LmeSzinc/StarRailCopilot) | HSR adaptation ideas, route definition concepts |
