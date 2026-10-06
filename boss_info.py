@@ -39,6 +39,15 @@ ENEMY_DIFFICULTY_AREA = (70, 640, 210, 670)
 # 词条文字区域（1~4段，第4段可能需要滑动补全）
 AFFIX_AREA = (220, 640, 765, 670)
 
+# 段位与词条数量映射（A0-A1:0, A2-A3:1, A4-A5:2, A6-A7:3, A8:4）
+RANK_AFFIX_COUNT = {
+    "A0": 0, "A1": 0,
+    "A2": 1, "A3": 1,
+    "A4": 2, "A5": 2,
+    "A6": 3, "A7": 3,
+    "A8": 4,
+}
+
 
 log = setup_logging("boss_info")
 
@@ -232,6 +241,28 @@ def run() -> int:
 
     affixes = get_affixes(image)
 
+    # ── 词条数量校验 ──
+    # 各段位词条数量固定：A0-A1:0, A2-A3:1, A4-A5:2, A6-A7:3, A8:4
+    # 如果识别到的词条数少于当前段位应有的数量，抛出错误
+    if rank_info:
+        expected_count = RANK_AFFIX_COUNT.get(rank_info["rank"])
+        actual_count = len(affixes)
+        if expected_count is not None and actual_count < expected_count:
+            log.error(
+                f"词条数量校验失败: 段位{rank_info['rank']}应有{expected_count}个词条，"
+                f"实际识别到{actual_count}个"
+            )
+            snapshot_error(
+                log, "affix_count_mismatch",
+                f"段位{rank_info['rank']}应有{expected_count}个词条，实际识别到{actual_count}个",
+                {"rank": rank_info["rank"], "expected": expected_count,
+                 "actual": actual_count, "affixes": affixes},
+                image,
+            )
+            # 仍然继续输出，但标记错误
+        else:
+            log.info(f"词条数量校验通过: 段位{rank_info['rank']} → {actual_count}/{expected_count}个词条")
+
     # ── 汇总输出 ──
     log.info("=" * 50)
     log.info("BOSS 信息汇总")
@@ -255,6 +286,7 @@ def run() -> int:
         log.info(f"词条{i}：{affix}")
 
     # ── 结构化 JSON 输出到 output/boss_info/ ──
+    expected_count = RANK_AFFIX_COUNT.get(rank_info["rank"]) if rank_info else None
     output_data = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "rank": rank_info["rank"] if rank_info else None,
@@ -266,6 +298,8 @@ def run() -> int:
         "enemy_difficulty": difficulty,
         "affixes": affixes,
         "affix_count": len(affixes),
+        "expected_affix_count": expected_count,
+        "affix_count_valid": (expected_count is not None and len(affixes) >= expected_count),
     }
     save_output(log, "boss_info", output_data)
 
