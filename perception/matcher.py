@@ -180,9 +180,13 @@ def _get_ddddocr():
 
 
 def _get_rapidocr():
-    """懒加载 RapidOCR 引擎，用于中文密集场景（词条、位面等）。"""
+    """懒加载 RapidOCR 引擎，优先使用 tools/ 下自包含版本。"""
     global _rapidocr_engine
     if _rapidocr_engine is None:
+        import sys
+        tools_dir = str(_ROOT / "tools")
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
         from rapidocr_onnxruntime import RapidOCR
         _rapidocr_engine = RapidOCR()
     return _rapidocr_engine

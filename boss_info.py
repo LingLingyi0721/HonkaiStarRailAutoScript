@@ -57,32 +57,31 @@ log = setup_logging("boss_info")
 
 # 已知的词条前缀噪音模式（游戏图标被OCR误识别）
 _AFFIX_NOISE_PREFIXES = [
-    "侵蚀·", "侵蚀", "m侵蚀·", "m侵蚀",
+    "m侵蚀·", "m侵蚀",
 ]
 
 def clean_affix_text(text: str) -> str:
     """清洗词条文字，去掉图标误识别产生的前缀噪音。
 
     规则：
-    1. 去掉所有非中文字符（m、?、·等）
-    2. 去掉已知的噪音前缀（侵蚀·等）
-    3. 如果结果超过4字，去掉前面的噪音字（词条名称通常4字，
-       图标误识别会产生1-2字前缀）
+    1. "侵蚀·"是特殊词条类别前缀，与词条名称一体，保留不动
+    2. 去掉非中文前缀字符（①、m、?等噪音）
+    3. 不做截取——词条名称长度不固定，截取会误删真实文字
+       （如"必灼热轰炸"截取为"灼热轰炸"是错误的）
     """
-    # 先去掉非中文字符
-    chinese_only = ''.join(c for c in text if '\u4e00' <= c <= '\u9fff')
+    # 先去掉非中文和非·字符（保留"·"因为"侵蚀·"需要它）
+    cleaned = ''.join(c for c in text if '\u4e00' <= c <= '\u9fff' or c == '·')
 
-    # 去掉已知噪音前缀
+    # 去掉已知噪音前缀（如"m侵蚀·"→"侵蚀·"）
     for prefix in _AFFIX_NOISE_PREFIXES:
-        if chinese_only.startswith(prefix):
-            chinese_only = chinese_only[len(prefix):]
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):]
+            # 去掉前缀后如果以"侵蚀"开头但没有"·"，补上
+            if cleaned.startswith('侵蚀') and not cleaned.startswith('侵蚀·'):
+                cleaned = '侵蚀·' + cleaned[2:]
             break
 
-    # 如果超过4字，去掉前面的噪音字（词条通常4字，图标会产生1-2字前缀）
-    if len(chinese_only) > 4:
-        chinese_only = chinese_only[-4:]
-
-    return chinese_only
+    return cleaned
 
 
 # ── RapidOCR 识别 ──────────────────────────────────────────────────

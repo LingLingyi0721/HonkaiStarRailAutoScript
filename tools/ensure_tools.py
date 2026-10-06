@@ -75,11 +75,54 @@ def ensure_ddddocr() -> bool:
     return False
 
 
+def ensure_rapidocr() -> bool:
+    """检测 RapidOCR 是否在 tools/rapidocr_onnxruntime/ 下，不存在则从 pip 安装位置复制。"""
+    target = _TOOLS / "rapidocr_onnxruntime"
+    marker = target / "__init__.py"
+    model = target / "models" / "ch_PP-OCRv3_rec_infer.onnx"
+
+    if marker.exists() and model.exists():
+        print("[OK] RapidOCR 已部署:", target)
+        return True
+
+    if marker.exists() and not model.exists():
+        print("[WARN] RapidOCR 目录存在但缺少模型文件，重新复制")
+
+    # 从 pip 安装位置复制
+    print("[INFO] 正在部署 RapidOCR 到 tools/...")
+    try:
+        import rapidocr_onnxruntime as _src
+        src_dir = Path(_src.__file__).resolve().parent
+    except ImportError:
+        print("[INFO] rapidocr-onnxruntime 未安装，正在 pip install...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "rapidocr-onnxruntime"])
+        import rapidocr_onnxruntime as _src
+        src_dir = Path(_src.__file__).resolve().parent
+
+    # 复制整个包（排除__pycache__）
+    if target.exists():
+        shutil.rmtree(target)
+
+    def ignore_pycache(dir, files):
+        return [f for f in files if f == "__pycache__"]
+
+    shutil.copytree(src_dir, target, ignore=ignore_pycache)
+
+    # 验证模型文件
+    if model.exists():
+        size_mb = model.stat().st_size // 1024 // 1024
+        print(f"[OK] RapidOCR 部署完成: {target} (rec模型 {size_mb}MB)")
+        return True
+    print("[FAIL] RapidOCR 部署失败：缺少模型文件")
+    return False
+
+
 def ensure_all() -> bool:
     """检测并部署所有工具，返回是否全部就绪。"""
     ok = True
     ok = ensure_tesseract() and ok
     ok = ensure_ddddocr() and ok
+    ok = ensure_rapidocr() and ok
     return ok
 
 
