@@ -23,6 +23,7 @@ STAGES = [
     ("launch",    "启动游戏",       "launch"),
     ("navigate",  "导航至旷宇纷争",  "navigate"),
     ("battle",    "进入货币战争",    "battle"),
+    ("boss_info", "BOSS信息识别",    "boss_info"),
     # 后续阶段在此追加：
     # ("settle",  "结算与循环",      "settle"),
 ]

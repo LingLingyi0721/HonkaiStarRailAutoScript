@@ -189,11 +189,27 @@ def run() -> int:
         return 1
 
     # ── 1. 段位和层级 ──
+    # 词条首领一览界面不显示段位层级，从 battle 模块传递过来
+    # 独立运行时 fallback 到自己识别
     log.info("-" * 30)
     log.info("步骤1: 段位和层级")
     log.info("-" * 30)
 
-    rank_info = get_rank_level(image, log)
+    rank_info = None
+    try:
+        import battle
+        if battle.CURRENT_RANK_LEVEL:
+            # battle.py 传递的格式如 "A8-50"
+            combined = battle.CURRENT_RANK_LEVEL
+            rank_name, level_text = combined.split("-", 1)
+            rank_info = {"rank": rank_name, "level": level_text, "combined": combined}
+            log.info(f"从 battle 模块获取: {combined}")
+    except (ImportError, AttributeError):
+        pass
+
+    if rank_info is None:
+        log.info("battle 模块无段位信息，尝试本地识别")
+        rank_info = get_rank_level(image, log)
 
     # ── 2. 三位面文字 ──
     log.info("-" * 30)
