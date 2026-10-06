@@ -2,7 +2,7 @@
 
 前置：launch.py 已启动游戏。
 流程：登录 → 主界面 → 指南 → 旷宇纷争 → 货币战争 → 标准博弈 → 词条首领
-兜底：proceed_to_next() 检查下一阶段关键词，未出现则点击推进，3轮失败抛错。
+兜底：proceed_to_next() 每 3 秒识别一次最多 5 次；未命中则点击并比对左上角 40x40 区域判断界面是否切换。
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import cv2
 
 from common import (
     setup_logging, ensure_device, screenshot, tap,
-    check_keywords, get_rank_level, rank_to_global,
+    get_rank_level, rank_to_global,
     proceed_to_next, snapshot_error,
 )
 
@@ -35,9 +35,13 @@ GAME_KEYWORDS = [
 ]
 GUIDE_ENTRY = (1010, 40)
 
-# 指南界面
+# 指南界面（5 个导航词任一命中即可，共用同一区域）
 GUIDE_KEYWORDS = [
+    {"keyword": "每日实训", "area": (85, 35, 170, 60)},
     {"keyword": "生存索引", "area": (85, 35, 170, 60)},
+    {"keyword": "旷宇纷争", "area": (85, 35, 170, 60)},
+    {"keyword": "逐光捡金", "area": (85, 35, 170, 60)},
+    {"keyword": "开拓历程", "area": (85, 35, 170, 60)},
 ]
 WAR_ENTRY = (372, 115)
 
@@ -100,8 +104,8 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 1. 等待登录界面 → 点击屏幕中央 ──
     if not proceed_to_next(
-        log, LOGIN_KEYWORDS, None,
-        cache_path=CACHE_SCREENSHOT, max_screenshots=15,
+        log, LOGIN_KEYWORDS, None, "login",
+        cache_path=CACHE_SCREENSHOT, detect_switch=False,
     ):
         return 1
     tap(log, *SCREEN_CENTER)
@@ -109,8 +113,8 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 2. 等待游戏主界面 → 点击指南入口 ──
     if not proceed_to_next(
-        log, GAME_KEYWORDS, None,
-        cache_path=CACHE_SCREENSHOT, max_screenshots=15,
+        log, GAME_KEYWORDS, None, "main",
+        cache_path=CACHE_SCREENSHOT,
     ):
         return 1
     tap(log, *GUIDE_ENTRY)
@@ -118,7 +122,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 3. 等待指南界面 → 点击旷宇纷争入口 ──
     if not proceed_to_next(
-        log, GUIDE_KEYWORDS, GUIDE_ENTRY,
+        log, GUIDE_KEYWORDS, GUIDE_ENTRY, "guide",
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
@@ -127,12 +131,12 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 4. 等待旷宇纷争界面 → 点击前往参与 ──
     if not proceed_to_next(
-        log, WAR_KEYWORDS, WAR_ENTRY,
+        log, WAR_KEYWORDS, WAR_ENTRY, "war",
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
     if not proceed_to_next(
-        log, ENTER_KEYWORDS, None,
+        log, ENTER_KEYWORDS, None, "enter",
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
@@ -141,7 +145,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 5. 等待货币战争主界面 → 点击开始按钮 ──
     if not proceed_to_next(
-        log, WAR_MAIN_KEYWORDS, ENTER_TAP,
+        log, WAR_MAIN_KEYWORDS, ENTER_TAP, "war_main",
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
@@ -150,7 +154,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 6. 等待模式选择界面 → 点击进入标准博弈 ──
     if not proceed_to_next(
-        log, MODE_KEYWORDS, START_TAP,
+        log, MODE_KEYWORDS, START_TAP, "mode",
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
@@ -159,7 +163,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 7. 等待标准博弈界面 → 记录难度 → 点击开始对局 ──
     if not proceed_to_next(
-        log, RANK_KEYWORDS, MODE_ENTER_TAP,
+        log, RANK_KEYWORDS, MODE_ENTER_TAP, "rank",
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
@@ -207,7 +211,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 8. 等待词条首领一览界面 → 结束 ──
     if not proceed_to_next(
-        log, NEXT_STEP_KEYWORDS, START_BATTLE_TAP,
+        log, NEXT_STEP_KEYWORDS, START_BATTLE_TAP, "boss",
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1

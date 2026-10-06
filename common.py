@@ -34,6 +34,10 @@ RANK_ORDER = ["A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]
 LEVEL_UP_AREA = (625, 95, 650, 115)
 LEVEL_DOWN_AREA = (625, 530, 650, 555)
 
+# 兜底：界面切换检测
+CORNER_AREA = (0, 0, 40, 40)   # 左上角比对区域
+SWITCH_THRESHOLD = 0.8         # 相似度低于此值 = 界面已切换
+
 
 def rank_to_global(rank: str, level: int) -> int:
     pos = 0
@@ -108,7 +112,8 @@ def ensure_device(log: logging.Logger) -> None:
     log.info(f"device: {state}")
 
 
-def screenshot(log: logging.Logger, cache_path: Path | None = None) -> np.ndarray | None:
+def screenshot(log: logging.Logger, cache_path: Path | None = None,
+               quiet: bool = False) -> np.ndarray | None:
     from tools.devkit import screencap_png
     try:
         png_bytes = screencap_png()
@@ -119,7 +124,8 @@ def screenshot(log: logging.Logger, cache_path: Path | None = None) -> np.ndarra
         if cache_path:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(str(cache_path), image)
-        log.info("screenshot")
+        if not quiet:
+            log.info("screenshot")
         return image
     except Exception as e:
         log.error(f"screenshot failed: {e}")
@@ -141,65 +147,105 @@ def swipe(log: logging.Logger, x1: int, y1: int, x2: int, y2: int,
 
 # ── OCR 关键词检查 ─────────────────────────────────────────────────
 
-def check_keywords(log: logging.Logger, image: np.ndarray, kw_defs: list[dict]) -> bool:
+def check_keywords(log: logging.Logger, image: np.ndarray,
+                   kw_defs: list[dict], obj_id: str) -> bool:
+    """在 kw_defs 区域内 OCR，命中任一关键词返回 True。
+
+    日志：check <obj_id>: found / check <obj_id>: not found
+    同一区域的多个候选词只 OCR 一次。
+    """
     from perception.matcher import ocr_rapid_text
     PAD_X, PAD_Y = 30, 10
+    ocr_cache: dict[tuple, str] = {}
     for kw_def in kw_defs:
         x1, y1, x2, y2 = kw_def["area"]
         padded = (max(0, x1-PAD_X), max(0, y1-PAD_Y),
                   min(1280, x2+PAD_X), min(720, y2+PAD_Y))
-        text = ocr_rapid_text(image, area=padded)
-        keyword = kw_def["keyword"]
-        log.info(f"check: {keyword}")
-        if keyword in text:
+        if padded not in ocr_cache:
+            ocr_cache[padded] = ocr_rapid_text(image, area=padded)
+        if kw_def["keyword"] in ocr_cache[padded]:
+            log.info(f"check {obj_id}: found")
             return True
+    log.info(f"check {obj_id}: not found")
     return False
 
 
 # ── 通用兜底机制 ───────────────────────────────────────────────────
 
+def _capture_corner(log: logging.Logger) -> np.ndarray | None:
+    """截取屏幕左上角 CORNER_AREA 区域，用于界面切换比对。"""
+    from tools.devkit import screencap_png
+    try:
+        png = screencap_png()
+        image = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            return None
+        x1, y1, x2, y2 = CORNER_AREA
+        log.info("capture corner")
+        return image[y1:y2, x1:x2]
+    except Exception as e:
+        log.warning(f"capture corner failed: {e}")
+        return None
+
+
+def region_similar(a: np.ndarray | None, b: np.ndarray | None) -> float:
+    """两个同尺寸图像块的相似度 0~1（1=完全相同）。
+
+    用平均像素差而非模板匹配，避免纯色区域 TM_CCOEFF_NORMED 的 NaN。
+    无法比对时保守返回 1.0（视为未切换）。
+    """
+    if a is None or b is None or a.shape != b.shape:
+        return 1.0
+    diff = np.abs(a.astype(np.float32) - b.astype(np.float32)).mean() / 255.0
+    return float(1.0 - diff)
+
+
 def proceed_to_next(
     log: logging.Logger,
     next_keywords: list[dict],
     tap_pos: tuple[int, int] | None,
+    obj_id: str,
     cache_path: Path | None = None,
-    max_screenshots: int = 5,
-    max_rounds: int = 3,
-    interval: float = 1.0,
+    detect_switch: bool = True,
+    max_checks: int = 5,
+    interval: float = 3.0,
+    max_rounds: int = 10,
 ) -> bool:
-    """等待下一阶段关键词出现，必要时点击推进。
+    """等待 next_keywords 出现，未出现则点击推进并检测界面切换。
 
-    只检查下一阶段关键词是否出现，不做交叉验证。
-    1. 截图，检查 next_keywords
-    2. 出现 → 返回 True
-    3. max_screenshots 次后未出现 → 点击 tap_pos
-    4. 点击后再检查
-    5. 连续 max_rounds 轮失败 → 返回 False
+    每轮截图检查最多 max_checks 次（间隔 interval 秒）：
+    - 命中 → 返回 True
+    - 全部未命中且 detect_switch=True → 截左上角 → 点击 → 再截 → 比对相似度
+      - 相似度 < SWITCH_THRESHOLD → 界面已切换，返回 True
+      - 否则进入下一轮
+    - detect_switch=False（"点击进入"阶段）跳过切换检测
     """
     for round_num in range(1, max_rounds + 1):
-        for shot_num in range(1, max_screenshots + 1):
-            image = screenshot(log, cache_path)
-            if image is not None and check_keywords(log, image, next_keywords):
+        for _ in range(max_checks):
+            image = screenshot(log, cache_path, quiet=True)
+            if image is not None and check_keywords(log, image, next_keywords, obj_id):
                 return True
-            log.info("loading...")
             time.sleep(interval)
 
-        if tap_pos is not None:
-            log.info(f"fallback tap {tap_pos[0]},{tap_pos[1]} ({round_num}/{max_rounds})")
-            tap(log, *tap_pos)
-            time.sleep(2.0)
-            image = screenshot(log, cache_path)
-            if image is not None and check_keywords(log, image, next_keywords):
-                return True
-        else:
-            log.warning(f"no tap_pos, waiting ({round_num}/{max_rounds})")
+        if not detect_switch or tap_pos is None:
+            log.warning(f"no fallback for {obj_id}")
+            break
 
-    log.error(f"proceed failed after {max_rounds} rounds")
+        before = _capture_corner(log)
+        tap(log, *tap_pos)
+        time.sleep(2.0)
+        after = _capture_corner(log)
+        sim = region_similar(before, after)
+        log.info(f"switch check: sim={sim:.2f} ({round_num}/{max_rounds})")
+        if sim < SWITCH_THRESHOLD:
+            log.info("screen switched, proceed")
+            return True
+
+    log.error(f"proceed failed: {obj_id}")
     if cache_path and cache_path.exists():
         cached = cv2.imread(str(cache_path))
-        snapshot_error(log, "proceed_failed",
-                       f"proceed failed after {max_rounds} rounds",
-                       {"rounds": max_rounds}, cached)
+        snapshot_error(log, "proceed_failed", f"proceed failed: {obj_id}",
+                       {"obj": obj_id, "rounds": max_rounds}, cached)
     return False
 
 
