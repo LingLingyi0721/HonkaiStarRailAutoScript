@@ -118,6 +118,7 @@ def run() -> int:
     screenshot_count = 0
     current_interval = INITIAL_INTERVAL
     retry_count = 0
+    game_miss_count = 0  # game阶段连续未识别计数（兜底用）
 
     while True:
         if time.time() - start_time > MAX_WAIT:
@@ -143,9 +144,20 @@ def run() -> int:
                 time.sleep(2.0)
                 stage = "guide"
             else:
-                log.info("加载中...")
-                if current_interval < MAX_INTERVAL:
-                    current_interval = min(current_interval + 1.0, MAX_INTERVAL)
+                game_miss_count += 1
+                # 兜底：连续10次未识别到"状态效果"，可能游戏已加载但OCR失败
+                # 直接尝试点击指南入口
+                if game_miss_count >= 10:
+                    log.warning(f"连续{game_miss_count}次未识别到游戏界面，尝试直接点击指南入口")
+                    current_interval = INITIAL_INTERVAL
+                    tap(log, *GUIDE_ENTRY)
+                    time.sleep(2.0)
+                    game_miss_count = 0
+                    stage = "guide"
+                else:
+                    log.info("加载中...")
+                    if current_interval < MAX_INTERVAL:
+                        current_interval = min(current_interval + 1.0, MAX_INTERVAL)
 
         elif stage == "guide":
             if check_keywords(log, image, GUIDE_KEYWORDS):

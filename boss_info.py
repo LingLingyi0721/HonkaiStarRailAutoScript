@@ -171,7 +171,31 @@ def get_affixes(image: np.ndarray) -> list[str]:
     counter = Counter(all_parts)
     # 按出现次数降序，同票按长度降序（更完整的优先）
     sorted_parts = sorted(counter.items(), key=lambda x: (-x[1], -len(x[0])))
-    confirmed = [p for p, count in sorted_parts[:4]]
+
+    # 去重：如果一个词条是另一个的子串，仅保留票数更高的
+    # 例如 "位面强化"(2票) 是 "第一位面强化"(3票) 的子串 → 保留 "第一位面强化"
+    # 例如 "能量逃伟"(3票) 和 "能量逃逸"(1票) 高度重叠 → 保留 "能量逃伟"
+    candidates = [p for p, count in sorted_parts[:6]]  # 先取前6个候选
+    confirmed = []
+    for p in candidates:
+        is_dup = False
+        for kept in confirmed:
+            # 子串关系：一个是另一个的子串
+            if p in kept or kept in p:
+                is_dup = True
+                log.info(f"去重: '{p}' 与 '{kept}' 存在子串关系，保留 '{kept}'")
+                break
+            # 高度重叠：共同字符占比 >= 60%
+            common = sum(1 for c in p if c in kept)
+            overlap_ratio = common / max(len(p), len(kept))
+            if overlap_ratio >= 0.6:
+                is_dup = True
+                log.info(f"去重: '{p}' 与 '{kept}' 重叠度{overlap_ratio:.0%}，保留 '{kept}'")
+                break
+        if not is_dup:
+            confirmed.append(p)
+        if len(confirmed) >= 4:
+            break
 
     log.info(f"投票统计: {[(p, c) for p, c in sorted_parts[:6]]}")
     log.info(f"最终词条: {confirmed}")
