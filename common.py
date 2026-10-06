@@ -141,7 +141,7 @@ def ensure_device(log: logging.Logger) -> None:
 
 
 def screenshot(log: logging.Logger, cache_path: Path | None = None) -> np.ndarray | None:
-    """截图并返回 BGR numpy 数组。可选保存到 cache_path。"""
+    """截图并返回 BGR numpy 数组。可选保存到 cache_path。静默执行不输出日志。"""
     from tools.devkit import screencap_png
     try:
         png_bytes = screencap_png()
@@ -149,7 +149,6 @@ def screenshot(log: logging.Logger, cache_path: Path | None = None) -> np.ndarra
         if image is None:
             log.error("截图失败: PNG 解码失败")
             return None
-        log.info("截图成功")
         if cache_path:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(str(cache_path), image)
@@ -179,13 +178,81 @@ def swipe(log: logging.Logger, x1: int, y1: int, x2: int, y2: int,
 def check_keywords(log: logging.Logger, image: np.ndarray, kw_defs: list[dict]) -> bool:
     """检查截图中是否包含任一关键词定义。
 
-    kw_defs 格式：[{"keyword": "xxx", "area": (x1,y1,x2,y2), "preprocess": None, "scale": 1.0, "psm": 6}]
+    kw_defs 格式：[{"keyword": "xxx", "area": (x1,y1,x2,y2)}]
+    RapidOCR 检测模型需要更大区域才能检测到文本，自动给 area 加 padding。
     """
     from perception.matcher import ocr_rapid_text
+    PAD_X, PAD_Y = 30, 10
     for kw_def in kw_defs:
-        text = ocr_rapid_text(image, area=kw_def["area"])
+        x1, y1, x2, y2 = kw_def["area"]
+        padded = (max(0, x1-PAD_X), max(0, y1-PAD_Y),
+                  min(1280, x2+PAD_X), min(720, y2+PAD_Y))
+        text = ocr_rapid_text(image, area=padded)
         if kw_def["keyword"] in text:
             return True
+    return False
+
+
+# ── 通用兜底机制 ───────────────────────────────────────────────────
+
+def proceed_to_next(
+    log: logging.Logger,
+    next_keywords: list[dict],
+    tap_pos: tuple[int, int] | None,
+    step_desc: str,
+    cache_path: Path | None = None,
+    max_screenshots: int = 5,
+    max_rounds: int = 3,
+    interval: float = 1.0,
+) -> bool:
+    """等待下一阶段出现，必要时点击推进。
+
+    逻辑：
+    1. 截图，检查是否出现 next_keywords
+    2. 如果出现，返回 True
+    3. max_screenshots 次后仍未出现，点击 tap_pos 推进
+    4. 点击后再检查是否出现 next_keywords
+    5. 没出现则回到步骤1（新一轮）
+    6. 连续 max_rounds 轮都没出现 → 返回 False
+
+    Args:
+        next_keywords: 下一阶段的关键词定义
+        tap_pos: 推进点击位置，None 表示只等待不点击
+        step_desc: 步骤描述（用于日志）
+        cache_path: 截图缓存路径
+        max_screenshots: 每轮截图次数（默认5）
+        max_rounds: 最多点击轮数（默认3）
+        interval: 截图间隔秒数
+    """
+    for round_num in range(1, max_rounds + 1):
+        # 截图 max_screenshots 次，检查是否出现下一阶段
+        for shot_num in range(1, max_screenshots + 1):
+            image = screenshot(log, cache_path)
+            if image is not None and check_keywords(log, image, next_keywords):
+                log.info(step_desc)
+                return True
+            log.info("loading...")
+            time.sleep(interval)
+
+        # max_screenshots 次后仍未出现，点击推进
+        if tap_pos is not None:
+            log.info(f"未检测到目标，点击推进 ({round_num}/{max_rounds})")
+            tap(log, *tap_pos)
+            time.sleep(2.0)
+            # 点击后检查一次
+            image = screenshot(log, cache_path)
+            if image is not None and check_keywords(log, image, next_keywords):
+                log.info(step_desc)
+                return True
+        else:
+            log.warning(f"等待超时 ({round_num}/{max_rounds})")
+
+    log.error(f"连续 {max_rounds} 轮未能进入下一阶段: {step_desc}")
+    if cache_path and cache_path.exists():
+        cached = cv2.imread(str(cache_path))
+        snapshot_error(log, "proceed_failed",
+                       f"连续 {max_rounds} 轮未能进入: {step_desc}",
+                       {"step": step_desc, "rounds": max_rounds}, cached)
     return False
 
 

@@ -1,63 +1,25 @@
 """崩坏：星穹铁道 启动脚本。
 
-流程：
-1. 确保 adb 连接 + 启动崩铁 app
-2. 识别到"点击进入" → 单击屏幕中央
-3. 识别到"状态效果" → 确认进入游戏，结束
+职责：仅管理 adb 连接和启动游戏 app。
+登录界面确认、点击进入、游戏界面确认等全部交给 navigate.py。
 """
 
 from __future__ import annotations
 
 import sys
-import time
-from pathlib import Path
 
-import cv2
-import numpy as np
-
-from common import setup_logging, snapshot_error, ensure_device, screenshot
+from common import setup_logging, ensure_device
 
 # ── 配置 ────────────────────────────────────────────────────────────
 
 PACKAGE = "com.miHoYo.hkrpg"
 ACTIVITY = "com.mihoyo.combosdk.ComboSDKActivity"
-SERIAL = "127.0.0.1:16416"
-
-SCREEN_CENTER = (640, 360)
-INITIAL_INTERVAL = 1.0
-MAX_INTERVAL = 60.0
-MAX_WAIT = 300
-MAX_RETRY = 5
-
-CACHE_SCREENSHOT = Path("tmp/launch_screenshot.png")
-
-# 登录界面：主关键词"点击进入"命中即确认；辅助关键词仅日志
-LOGIN_PRIMARY = {
-    "keyword": "点击进入",
-    "area": (400, 600, 880, 700),
-    "preprocess": "binary",
-    "scale": 2.0,
-    "psm": 6,
-}
-
-LOGIN_AUXILIARY = [
-    {"keyword": "公告", "area": (1050, 80, 1280, 600), "preprocess": None, "scale": 2.0, "psm": 6},
-    {"keyword": "更新", "area": (1050, 80, 1280, 600), "preprocess": None, "scale": 2.0, "psm": 6},
-    {"keyword": "设置", "area": (1050, 80, 1280, 600), "preprocess": None, "scale": 2.0, "psm": 6},
-]
-
-# 游戏内界面关键词
-GAME_KEYWORDS = [
-    {"keyword": "状态效果", "area": (1150, 100, 1235, 125), "preprocess": "invert", "scale": 1.0, "psm": 6},
-]
-
 
 log = setup_logging("launch")
 
 
-# ── 设备操作（launch 专有） ────────────────────────────────────────
-
 def launch_app() -> None:
+    """通过 adb 启动崩铁 app。"""
     from tools.devkit import adb
 
     try:
@@ -65,7 +27,7 @@ def launch_app() -> None:
                      "-c", "android.intent.category.LAUNCHER",
                      "-n", f"{PACKAGE}/{ACTIVITY}")
         if "Error" not in result and "Warning" not in result:
-            log.info(f"am start 成功")
+            log.info("am start 成功")
             return
         if "Warning: Activity not started" in result:
             log.info("app 已在运行")
@@ -87,50 +49,6 @@ def launch_app() -> None:
         raise
 
 
-def tap_center() -> None:
-    from tools.devkit import tap
-    tap(*SCREEN_CENTER)
-    log.info(f"点击 ({SCREEN_CENTER[0]}, {SCREEN_CENTER[1]})")
-
-
-# ── OCR 识别 ───────────────────────────────────────────────────────
-
-def check_login_screen(image: np.ndarray) -> bool:
-    from perception.matcher import ocr_rapid_text
-
-    # 主关键词
-    text = ocr_rapid_text(image, area=LOGIN_PRIMARY["area"])
-    primary_hit = LOGIN_PRIMARY["keyword"] in text
-
-    # 辅助关键词（同区域共享一次 OCR）
-    area_groups: dict[tuple, list[dict]] = {}
-    for kw_def in LOGIN_AUXILIARY:
-        key = kw_def["area"]
-        area_groups.setdefault(key, []).append(kw_def)
-
-    for area, kw_list in area_groups.items():
-        text = ocr_rapid_text(image, area=area)
-        for kw_def in kw_list:
-            if kw_def["keyword"] in text:
-                pass
-
-    if primary_hit:
-        log.info(f"登录界面确认")
-    return primary_hit
-
-
-def check_game_screen(image: np.ndarray) -> bool:
-    from perception.matcher import ocr_rapid_text
-    for kw_def in GAME_KEYWORDS:
-        text = ocr_rapid_text(image, area=kw_def["area"])
-        if kw_def["keyword"] in text:
-            log.info("游戏界面确认")
-            return True
-    return False
-
-
-# ── 主流程 ─────────────────────────────────────────────────────────
-
 def run() -> int:
     log.info("=" * 50)
     log.info("崩坏：星穹铁道 启动阶段")
@@ -148,68 +66,7 @@ def run() -> int:
         log.error(f"app 启动失败: {e}")
         return 1
 
-    stage = "login"
-    start_time = time.time()
-    screenshot_count = 0
-    current_interval = INITIAL_INTERVAL
-    retry_count = 0
-
-    while True:
-        if time.time() - start_time > MAX_WAIT:
-            context = {"stage": stage, "elapsed": f"{time.time() - start_time:.1f}s",
-                       "screenshot_count": screenshot_count}
-            log.error(f"超时 ({MAX_WAIT}秒)")
-            cached = cv2.imread(str(CACHE_SCREENSHOT)) if CACHE_SCREENSHOT.exists() else None
-            snapshot_error(log, "timeout", f"等待 {MAX_WAIT}秒超时", context, cached)
-            return 1
-
-        image = screenshot(log, CACHE_SCREENSHOT)
-        if image is None:
-            time.sleep(current_interval)
-            continue
-
-        screenshot_count += 1
-
-        if stage == "login":
-            if check_login_screen(image):
-                current_interval = INITIAL_INTERVAL
-                tap_center()
-                time.sleep(2.0)
-                retry_count = 0
-                stage = "login_verify"
-            else:
-                log.info("加载中...")
-                if current_interval < MAX_INTERVAL:
-                    current_interval = min(current_interval + 1.0, MAX_INTERVAL)
-
-        elif stage == "login_verify":
-            if check_login_screen(image):
-                retry_count += 1
-                if retry_count >= MAX_RETRY:
-                    log.error(f"登录界面点击重试 {MAX_RETRY} 次仍未离开")
-                    snapshot_error(log, "login_retry_exhausted",
-                                   f"点击重试 {MAX_RETRY} 次仍未离开登录界面",
-                                   {"stage": stage, "retry_count": retry_count}, image)
-                    return 1
-                log.info(f"仍在登录界面，再次点击 (重试 {retry_count}/{MAX_RETRY})")
-                tap_center()
-                time.sleep(2.0)
-            else:
-                log.info("已离开登录界面")
-                current_interval = INITIAL_INTERVAL
-                stage = "game"
-
-        elif stage == "game":
-            if check_game_screen(image):
-                log.info(f"总耗时: {time.time() - start_time:.1f}秒, 截图次数: {screenshot_count}")
-                return 0
-            else:
-                log.info("加载中...")
-                if current_interval < MAX_INTERVAL:
-                    current_interval = min(current_interval + 1.0, MAX_INTERVAL)
-
-        time.sleep(current_interval)
-
+    log.info("启动完成，交由 navigate 接管")
     return 0
 
 

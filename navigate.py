@@ -1,20 +1,19 @@
 """崩坏：星穹铁道 导航脚本。
 
-前置条件：已通过 launch.py 进入游戏主界面。
+前置条件：已通过 launch.py 启动游戏 app。
 
 流程：
-1. 确认游戏界面（"状态效果"） → 点击指南入口
-2. 确认指南界面（"生存索引"） → 点击旷宇纷争入口
-3. 确认旷宇纷争界面（"货币战争"） → 识别"前往参与" → 点击进入货币战争主界面
-4. 确认货币战争主界面（"货币战争"） → 点击开始按钮
-5. 兜底：点击后"货币战争"仍在则再次点击，最多5次
-6. 确认模式选择界面（"进入标准博弈"） → 点击进入按钮
-7. 兜底：点击后"进入标准博弈"仍在则再次点击，最多5次
-8. 确认标准博弈界面（"开始对局"） → 记录难度信息（段位+层级） → 点击开始对局按钮
-9. 兜底：点击后"开始对局"仍在则再次点击，最多5次
-10. 确认词条首领一览界面（"下一步"） → 结束
+1. 等待登录界面 → 点击屏幕中央 → 等待离开登录界面
+2. 等待游戏主界面 → 点击指南入口
+3. 等待指南界面 → 点击旷宇纷争入口
+4. 等待旷宇纷争界面 → 点击前往参与
+5. 等待货币战争主界面 → 点击开始按钮
+6. 等待模式选择界面 → 点击进入标准博弈
+7. 等待标准博弈界面 → 记录难度 → 点击开始对局
+8. 等待词条首领一览界面 → 结束
 
-难度信息（CURRENT_RANK_LEVEL）格式如 "A8-50"，供决策层AI使用。
+兜底机制：每个阶段截图5次未检测到目标则点击推进位置，
+连续3轮失败则抛出错误。
 """
 
 from __future__ import annotations
@@ -24,78 +23,69 @@ import time
 from pathlib import Path
 
 import cv2
-import numpy as np
 
-from common import setup_logging, snapshot_error, ensure_device, screenshot, tap, check_keywords, get_rank_level, rank_to_global
+from common import (
+    setup_logging, ensure_device, screenshot, tap,
+    check_keywords, get_rank_level, rank_to_global,
+    proceed_to_next, snapshot_error,
+)
 
 # ── 配置 ────────────────────────────────────────────────────────────
 
-INITIAL_INTERVAL = 1.0
-MAX_INTERVAL = 60.0
-MAX_WAIT = 300
-MAX_RETRY = 5
-
 CACHE_SCREENSHOT = Path("tmp/navigate_screenshot.png")
 
-# 游戏界面关键词（确认起点）
-GAME_KEYWORDS = [
-    {"keyword": "状态效果", "area": (1150, 100, 1235, 125), "preprocess": "invert", "scale": 1.0, "psm": 6},
+# 登录界面
+LOGIN_KEYWORDS = [
+    {"keyword": "点击进入", "area": (400, 600, 880, 700)},
 ]
+SCREEN_CENTER = (640, 360)
 
-# 指南界面入口坐标
+# 游戏主界面
+GAME_KEYWORDS = [
+    {"keyword": "状态效果", "area": (1150, 100, 1235, 125)},
+]
 GUIDE_ENTRY = (1010, 40)
 
-# 指南界面关键词
+# 指南界面
 GUIDE_KEYWORDS = [
-    {"keyword": "生存索引", "area": (85, 35, 170, 60), "preprocess": None, "scale": 1.0, "psm": 6},
+    {"keyword": "生存索引", "area": (85, 35, 170, 60)},
 ]
-
-# 旷宇纷争入口坐标（x330-415, y85-145 的中点）
 WAR_ENTRY = (372, 115)
 
-# 旷宇纷争界面关键词（识别"货币战争"确认进入了旷宇纷争界面）
+# 旷宇纷争界面
 WAR_KEYWORDS = [
-    {"keyword": "货币战争", "area": (140, 195, 240, 230), "preprocess": None, "scale": 1.0, "psm": 6},
+    {"keyword": "货币战争", "area": (140, 195, 240, 230)},
 ]
-
-# "前往参与"按钮关键词 + 点击坐标（按钮中心 x1000-1085, y605-630）
 ENTER_KEYWORDS = [
-    {"keyword": "前往参与", "area": (1000, 605, 1085, 630), "preprocess": None, "scale": 2.0, "psm": 6},
+    {"keyword": "前往参与", "area": (1000, 605, 1085, 630)},
 ]
 ENTER_TAP = (1042, 617)
 
-# 货币战争主界面关键词
+# 货币战争主界面
 WAR_MAIN_KEYWORDS = [
-    {"keyword": "货币战争", "area": (980, 625, 1085, 670), "preprocess": None, "scale": 1.0, "psm": 6},
+    {"keyword": "货币战争", "area": (980, 625, 1085, 670)},
 ]
-
-# 开始按钮点击坐标（x1100-1130, y630-660 的中点）
 START_TAP = (1115, 645)
 
-# 模式选择界面关键词
+# 模式选择界面
 MODE_KEYWORDS = [
-    {"keyword": "进入标准博弈", "area": (980, 625, 1110, 650), "preprocess": None, "scale": 1.0, "psm": 6},
+    {"keyword": "进入标准博弈", "area": (980, 625, 1110, 650)},
 ]
-
-# 进入标准博弈按钮点击坐标（x1100-1130, y630-660 的中点）
 MODE_ENTER_TAP = (1115, 645)
 
-# 标准博弈界面关键词（"开始对局"按钮确认进入标准博弈界面）
+# 标准博弈界面
 RANK_KEYWORDS = [
-    {"keyword": "开始对局", "area": (1045, 630, 1130, 655), "preprocess": None, "scale": 1.0, "psm": 6},
+    {"keyword": "开始对局", "area": (1045, 630, 1130, 655)},
 ]
-
-# "开始对局"按钮点击坐标
 START_BATTLE_TAP = (1087, 642)
 
-# 词条首领一览界面关键词（"下一步"按钮确认进入）
+# 词条首领一览界面
 NEXT_STEP_KEYWORDS = [
-    {"keyword": "下一步", "area": (970, 645, 1040, 670), "preprocess": None, "scale": 1.0, "psm": 6},
+    {"keyword": "下一步", "area": (970, 645, 1040, 670)},
 ]
 
 # 当前局难度信息（段位+层级），供决策层AI使用
 CURRENT_RANK_LEVEL: str | None = None
-
 
 log = setup_logging("navigate")
 
@@ -107,8 +97,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     Args:
         target_rank_level: 目标段位层级，格式如 "A8-10"。
-            None 表示不切换，保持当前位置。如果指定且与当前不一致，
-            会先切换到目标位置再点击开始对局。
+            None 表示不切换，保持当前位置。
     """
     log.info("=" * 50)
     log.info("崩坏：星穹铁道 导航阶段")
@@ -120,243 +109,122 @@ def run(target_rank_level: str | None = None) -> int:
         log.error(f"设备连接失败: {e}")
         return 1
 
-    stage = "game"
     start_time = time.time()
-    screenshot_count = 0
-    current_interval = INITIAL_INTERVAL
-    retry_count = 0
-    game_miss_count = 0  # game阶段连续未识别计数（兜底用）
-    guide_miss_count = 0  # guide阶段连续未识别计数（兜底用）
 
-    while True:
-        if time.time() - start_time > MAX_WAIT:
-            context = {"stage": stage, "elapsed": f"{time.time() - start_time:.1f}s",
-                       "screenshot_count": screenshot_count}
-            log.error(f"超时 ({MAX_WAIT}秒)")
-            cached = cv2.imread(str(CACHE_SCREENSHOT)) if CACHE_SCREENSHOT.exists() else None
-            snapshot_error(log, "timeout", f"等待 {MAX_WAIT}秒超时", context, cached)
-            return 1
+    # ── 1. 等待登录界面 → 点击屏幕中央 ──
+    if not proceed_to_next(
+        log, LOGIN_KEYWORDS, None, "登录界面确认",
+        cache_path=CACHE_SCREENSHOT, max_screenshots=15,
+    ):
+        return 1
+    tap(log, *SCREEN_CENTER)
+    time.sleep(2.0)
 
-        image = screenshot(log, CACHE_SCREENSHOT)
-        if image is None:
-            time.sleep(current_interval)
-            continue
+    # ── 2. 等待游戏主界面 → 点击指南入口 ──
+    if not proceed_to_next(
+        log, GAME_KEYWORDS, None, "游戏界面确认",
+        cache_path=CACHE_SCREENSHOT, max_screenshots=15,
+    ):
+        return 1
+    tap(log, *GUIDE_ENTRY)
+    time.sleep(2.0)
 
-        screenshot_count += 1
+    # ── 3. 等待指南界面 → 点击旷宇纷争入口 ──
+    if not proceed_to_next(
+        log, GUIDE_KEYWORDS, GUIDE_ENTRY, "指南界面确认",
+        cache_path=CACHE_SCREENSHOT,
+    ):
+        return 1
+    tap(log, *WAR_ENTRY)
+    time.sleep(2.0)
 
-        if stage == "game":
-            if check_keywords(log, image, GAME_KEYWORDS):
-                log.info("游戏界面确认")
-                current_interval = INITIAL_INTERVAL
-                tap(log, *GUIDE_ENTRY)
-                time.sleep(2.0)
-                stage = "guide"
-            else:
-                game_miss_count += 1
-                # 兜底：连续10次未识别到"状态效果"，可能游戏已加载但OCR失败
-                # 直接尝试点击指南入口
-                if game_miss_count >= 10:
-                    log.warning(f"连续{game_miss_count}次未识别到游戏界面，尝试直接点击指南入口")
-                    current_interval = INITIAL_INTERVAL
-                    tap(log, *GUIDE_ENTRY)
-                    time.sleep(2.0)
-                    game_miss_count = 0
-                    stage = "guide"
-                else:
-                    log.info("加载中...")
-                    if current_interval < MAX_INTERVAL:
-                        current_interval = min(current_interval + 1.0, MAX_INTERVAL)
+    # ── 4. 等待旷宇纷争界面 → 点击前往参与 ──
+    if not proceed_to_next(
+        log, WAR_KEYWORDS, WAR_ENTRY, "旷宇纷争界面确认",
+        cache_path=CACHE_SCREENSHOT,
+    ):
+        return 1
+    if not proceed_to_next(
+        log, ENTER_KEYWORDS, None, "前往参与确认",
+        cache_path=CACHE_SCREENSHOT,
+    ):
+        return 1
+    tap(log, *ENTER_TAP)
+    time.sleep(2.0)
 
-        elif stage == "guide":
-            if check_keywords(log, image, GUIDE_KEYWORDS):
-                log.info("指南界面确认")
-                current_interval = INITIAL_INTERVAL
-                guide_miss_count = 0
-                tap(log, *WAR_ENTRY)
-                time.sleep(2.0)
-                retry_count = 0
-                stage = "guide_verify"
-            else:
-                guide_miss_count += 1
-                # 兜底：连续10次未识别到"生存索引"，重新点击指南入口
-                if guide_miss_count >= 10:
-                    log.warning(f"连续{guide_miss_count}次未识别到指南界面，重新点击指南入口")
-                    current_interval = INITIAL_INTERVAL
-                    tap(log, *GUIDE_ENTRY)
-                    time.sleep(2.0)
-                    guide_miss_count = 0
-                else:
-                    log.info("加载中...")
-                    if current_interval < MAX_INTERVAL:
-                        current_interval = min(current_interval + 1.0, MAX_INTERVAL)
+    # ── 5. 等待货币战争主界面 → 点击开始按钮 ──
+    if not proceed_to_next(
+        log, WAR_MAIN_KEYWORDS, ENTER_TAP, "货币战争主界面确认",
+        cache_path=CACHE_SCREENSHOT,
+    ):
+        return 1
+    tap(log, *START_TAP)
+    time.sleep(2.0)
 
-        elif stage == "guide_verify":
-            if check_keywords(log, image, WAR_KEYWORDS):
-                log.info("旷宇纷争界面确认")
-                current_interval = INITIAL_INTERVAL
-                stage = "enter"
-            else:
-                retry_count += 1
-                if retry_count >= MAX_RETRY:
-                    log.error(f"旷宇纷争入口点击重试 {MAX_RETRY} 次仍未进入")
-                    snapshot_error(log, "guide_retry_exhausted",
-                                   f"点击重试 {MAX_RETRY} 次仍未进入旷宇纷争界面",
-                                   {"stage": stage, "retry_count": retry_count}, image)
-                    return 1
-                log.info(f"未进入旷宇纷争界面，再次点击 (重试 {retry_count}/{MAX_RETRY})")
-                tap(log, *WAR_ENTRY)
-                time.sleep(2.0)
+    # ── 6. 等待模式选择界面 → 点击进入标准博弈 ──
+    if not proceed_to_next(
+        log, MODE_KEYWORDS, START_TAP, "模式选择界面确认",
+        cache_path=CACHE_SCREENSHOT,
+    ):
+        return 1
+    tap(log, *MODE_ENTER_TAP)
+    time.sleep(2.0)
 
-        elif stage == "enter":
-            if check_keywords(log, image, ENTER_KEYWORDS):
-                log.info("前往参与确认")
-                current_interval = INITIAL_INTERVAL
-                tap(log, *ENTER_TAP)
-                time.sleep(2.0)
-                retry_count = 0
-                stage = "enter_verify"
-            else:
-                log.info("加载中...")
-                if current_interval < MAX_INTERVAL:
-                    current_interval = min(current_interval + 1.0, MAX_INTERVAL)
+    # ── 7. 等待标准博弈界面 → 记录难度 → 点击开始对局 ──
+    if not proceed_to_next(
+        log, RANK_KEYWORDS, MODE_ENTER_TAP, "标准博弈界面确认",
+        cache_path=CACHE_SCREENSHOT,
+    ):
+        return 1
 
-        elif stage == "enter_verify":
-            if check_keywords(log, image, ENTER_KEYWORDS):
-                retry_count += 1
-                if retry_count >= MAX_RETRY:
-                    log.error(f"前往参与点击重试 {MAX_RETRY} 次仍未进入货币战争主界面")
-                    snapshot_error(log, "enter_retry_exhausted",
-                                   f"点击重试 {MAX_RETRY} 次仍未进入货币战争主界面",
-                                   {"stage": stage, "retry_count": retry_count}, image)
-                    return 1
-                log.info(f"仍在前往参与界面，再次点击 (重试 {retry_count}/{MAX_RETRY})")
-                tap(log, *ENTER_TAP)
-                time.sleep(2.0)
-            else:
-                log.info("货币战争主界面确认")
-                current_interval = INITIAL_INTERVAL
-                stage = "war_confirm"
+    # 记录难度信息
+    global CURRENT_RANK_LEVEL
+    image = screenshot(log, CACHE_SCREENSHOT)
+    if image is not None:
+        rank_info = get_rank_level(image, log)
+        if rank_info:
+            CURRENT_RANK_LEVEL = rank_info["combined"]
+            log.info(f"当前难度: {CURRENT_RANK_LEVEL}")
+        else:
+            log.warning("难度信息识别失败，继续流程")
 
-        elif stage == "war_confirm":
-            if check_keywords(log, image, WAR_MAIN_KEYWORDS):
-                log.info("货币战争主界面确认")
-                current_interval = INITIAL_INTERVAL
-                tap(log, *START_TAP)
-                time.sleep(2.0)
-                retry_count = 0
-                stage = "start_verify"
-            else:
-                log.info("加载中...")
-                if current_interval < MAX_INTERVAL:
-                    current_interval = min(current_interval + 1.0, MAX_INTERVAL)
+    # 段位层级切换
+    if target_rank_level and rank_info and rank_info["rank"] and rank_info["level"]:
+        target_rank, target_level_str = target_rank_level.split("-", 1)
+        target_level = int(target_level_str)
+        current_global = rank_to_global(rank_info["rank"], int(rank_info["level"]))
+        target_global = rank_to_global(target_rank, target_level)
+        if current_global != target_global:
+            log.info(f"需要切换: {CURRENT_RANK_LEVEL} -> {target_rank_level}")
+            from adjust import adjust_level
+            ok = adjust_level(target_rank, target_level)
+            if not ok:
+                log.error(f"段位层级切换失败: {target_rank_level}")
+                snapshot_error(log, "adjust_failed",
+                               f"切换到 {target_rank_level} 失败",
+                               {"current": CURRENT_RANK_LEVEL, "target": target_rank_level}, image)
+                return 1
+            image2 = screenshot(log)
+            if image2 is not None:
+                rank_info2 = get_rank_level(image2, log)
+                if rank_info2 and rank_info2["combined"]:
+                    CURRENT_RANK_LEVEL = rank_info2["combined"]
+                    log.info(f"切换后难度: {CURRENT_RANK_LEVEL}")
+        else:
+            log.info(f"已在目标位置 {target_rank_level}，无需切换")
 
-        elif stage == "start_verify":
-            if check_keywords(log, image, MODE_KEYWORDS):
-                log.info("模式选择界面确认")
-                current_interval = INITIAL_INTERVAL
-                tap(log, *MODE_ENTER_TAP)
-                time.sleep(2.0)
-                retry_count = 0
-                stage = "mode_verify"
-            elif check_keywords(log, image, WAR_MAIN_KEYWORDS):
-                retry_count += 1
-                if retry_count >= MAX_RETRY:
-                    log.error(f"开始按钮点击重试 {MAX_RETRY} 次仍未进入货币战争")
-                    snapshot_error(log, "start_retry_exhausted",
-                                   f"点击重试 {MAX_RETRY} 次仍未进入货币战争",
-                                   {"stage": stage, "retry_count": retry_count}, image)
-                    return 1
-                log.info(f"仍在货币战争主界面，再次点击 (重试 {retry_count}/{MAX_RETRY})")
-                tap(log, *START_TAP)
-                time.sleep(2.0)
-            else:
-                log.info("加载中...")
-                if current_interval < MAX_INTERVAL:
-                    current_interval = min(current_interval + 1.0, MAX_INTERVAL)
+    # 点击开始对局
+    tap(log, *START_BATTLE_TAP)
+    time.sleep(2.0)
 
-        elif stage == "mode_verify":
-            if check_keywords(log, image, RANK_KEYWORDS):
-                log.info("标准博弈界面确认")
-                # 记录难度信息（段位+层级），供决策层AI使用
-                global CURRENT_RANK_LEVEL
-                rank_info = get_rank_level(image, log)
-                if rank_info:
-                    CURRENT_RANK_LEVEL = rank_info["combined"]
-                    log.info(f"当前难度: {CURRENT_RANK_LEVEL}")
-                else:
-                    log.warning("难度信息识别失败，继续流程")
+    # ── 8. 等待词条首领一览界面 → 结束 ──
+    if not proceed_to_next(
+        log, NEXT_STEP_KEYWORDS, START_BATTLE_TAP, "词条首领一览界面确认",
+        cache_path=CACHE_SCREENSHOT,
+    ):
+        return 1
 
-                # 如果指定了目标段位层级，且与当前不一致，执行切换
-                if target_rank_level and rank_info and rank_info["rank"] and rank_info["level"]:
-                    target_rank, target_level_str = target_rank_level.split("-", 1)
-                    target_level = int(target_level_str)
-                    current_global = rank_to_global(rank_info["rank"], int(rank_info["level"]))
-                    target_global = rank_to_global(target_rank, target_level)
-                    if current_global != target_global:
-                        log.info(f"需要切换: {CURRENT_RANK_LEVEL} -> {target_rank_level}")
-                        from adjust import adjust_level
-                        ok = adjust_level(target_rank, target_level)
-                        if not ok:
-                            log.error(f"段位层级切换失败: {target_rank_level}")
-                            snapshot_error(log, "adjust_failed",
-                                           f"切换到 {target_rank_level} 失败",
-                                           {"current": CURRENT_RANK_LEVEL, "target": target_rank_level}, image)
-                            return 1
-                        # 切换后更新当前难度信息
-                        image2 = screenshot(log)
-                        if image2 is not None:
-                            rank_info2 = get_rank_level(image2, log)
-                            if rank_info2 and rank_info2["combined"]:
-                                CURRENT_RANK_LEVEL = rank_info2["combined"]
-                                log.info(f"切换后难度: {CURRENT_RANK_LEVEL}")
-                    else:
-                        log.info(f"已在目标位置 {target_rank_level}，无需切换")
-
-                # 点击"开始对局"按钮
-                current_interval = INITIAL_INTERVAL
-                tap(log, *START_BATTLE_TAP)
-                time.sleep(2.0)
-                retry_count = 0
-                stage = "battle_start"
-            elif check_keywords(log, image, MODE_KEYWORDS):
-                retry_count += 1
-                if retry_count >= MAX_RETRY:
-                    log.error(f"进入标准博弈点击重试 {MAX_RETRY} 次仍未进入标准博弈界面")
-                    snapshot_error(log, "mode_retry_exhausted",
-                                   f"点击重试 {MAX_RETRY} 次仍未进入标准博弈界面",
-                                   {"stage": stage, "retry_count": retry_count}, image)
-                    return 1
-                log.info(f"仍在模式选择界面，再次点击 (重试 {retry_count}/{MAX_RETRY})")
-                tap(log, *MODE_ENTER_TAP)
-                time.sleep(2.0)
-            else:
-                log.info("加载中...")
-                if current_interval < MAX_INTERVAL:
-                    current_interval = min(current_interval + 1.0, MAX_INTERVAL)
-
-        elif stage == "battle_start":
-            if check_keywords(log, image, NEXT_STEP_KEYWORDS):
-                log.info("词条首领一览界面确认")
-                log.info(f"总耗时: {time.time() - start_time:.1f}秒, 截图次数: {screenshot_count}")
-                return 0
-            elif check_keywords(log, image, RANK_KEYWORDS):
-                retry_count += 1
-                if retry_count >= MAX_RETRY:
-                    log.error(f"开始对局点击重试 {MAX_RETRY} 次仍未进入词条首领一览")
-                    snapshot_error(log, "battle_start_retry_exhausted",
-                                   f"点击重试 {MAX_RETRY} 次仍未进入词条首领一览",
-                                   {"stage": stage, "retry_count": retry_count}, image)
-                    return 1
-                log.info(f"仍在标准博弈界面，再次点击开始对局 (重试 {retry_count}/{MAX_RETRY})")
-                tap(log, *START_BATTLE_TAP)
-                time.sleep(2.0)
-            else:
-                log.info("加载中...")
-                if current_interval < MAX_INTERVAL:
-                    current_interval = min(current_interval + 1.0, MAX_INTERVAL)
-
-        time.sleep(current_interval)
-
+    log.info(f"总耗时: {time.time() - start_time:.1f}秒")
     return 0
 
 
