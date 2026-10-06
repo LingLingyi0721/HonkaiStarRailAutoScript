@@ -103,63 +103,75 @@ def get_affixes(image: np.ndarray) -> list[str]:
     """识别词条文字，返回词条列表（1~4段）。
 
     区域 x220-765, y640-670 包含1~4段词条文字，每段前面有一个乱码标记。
-    如果存在第4段，先确认前三段内容，然后从此区域往左滑动一次，再识别补全第4段。
+    如果存在第4段，执行左滑+右滑循环两次，用投票机制取最可信内容：
+    - 左滑：第4段完整显示
+    - 右滑回来：前3段再次可见
+    - 真词条在多次识别中反复出现（高票），乱码每次不同（低票被淘汰）
     """
     from perception.matcher import ocr
+    from collections import Counter
 
-    # 第一次识别
-    text = ocr(image, area=AFFIX_AREA, lang="chi_sim+eng",
-               preprocess=None, scale=1.0, psm=6)
-    log.info(f"词条区域原始识别: {repr(text)}")
+    def ocr_affix(img: np.ndarray) -> list[str]:
+        """对词条区域做 OCR 并分割过滤。"""
+        text = ocr(img, area=AFFIX_AREA, lang="chi_sim+eng",
+                   preprocess=None, scale=1.0, psm=6)
+        parts = re.split(r'[^\u4e00-\u9fff\w]+', text)
+        # 只保留2字及以上、且包含至少一个中文字符的片段
+        # （纯英文/数字片段是乱码误识别，如 WA/CRAG/PB）
+        return [p.strip() for p in parts
+                if len(p.strip()) >= 2 and re.search(r'[\u4e00-\u9fff]', p)]
 
-    # 分割词条：乱码字符作为分隔标志，后面接文字内容
-    # 用非中文、非数字、非字母的连续字符作为分隔
-    parts = re.split(r'[^\u4e00-\u9fff\w]+', text)
-    # 只保留2字及以上的片段（单字多为乱码误识别）
-    parts = [p.strip() for p in parts if len(p.strip()) >= 2]
+    # 原始位置识别
+    parts = ocr_affix(image)
+    log.info(f"原始识别: {parts} (共{len(parts)}段)")
 
     if not parts:
         log.warning("词条识别失败：未识别到任何可信内容")
         return []
 
-    log.info(f"词条分割结果: {parts} (共{len(parts)}段)")
+    # 执行左滑+右滑循环两次，用投票机制取最可信内容
+    # 不管原始识别出几段，都可能存在被乱码遮挡的词条，需要滑动多角度识别
+    x1, y1, x2, y2 = AFFIX_AREA
+    mid_y = (y1 + y2) // 2
 
-    # 如果有4段或以上，需要滑动补全第4段
-    if len(parts) >= 4:
-        log.info("检测到4段词条，执行滑动补全第4段")
-        confirmed = parts[:3]
-        log.info(f"前三段已确认: {confirmed}")
+    all_results = [parts]  # 收集所有轮次的识别结果
 
-        # 从词条区域往左滑动（让第4段完整显示）
-        x1, y1, x2, y2 = AFFIX_AREA
-        mid_y = (y1 + y2) // 2
+    for round_idx in range(2):
+        round_num = round_idx + 1
+
+        # 左滑（看第4段）
         swipe(log, x2 - 20, mid_y, x1 + 20, mid_y, duration_ms=500)
-        time.sleep(2.0)  # 滑动后等2秒让画面稳定再截图
-
-        # 滑动后重新截图并识别
+        time.sleep(2.0)
         new_image = screenshot(log, CACHE_SCREENSHOT)
         if new_image is not None:
-            new_text = ocr(new_image, area=AFFIX_AREA, lang="chi_sim+eng",
-                           preprocess=None, scale=1.0, psm=6)
-            log.info(f"滑动后词条区域识别: {repr(new_text)}")
-            new_parts = re.split(r'[^\u4e00-\u9fff\w]+', new_text)
-            new_parts = [p.strip() for p in new_parts if len(p.strip()) >= 2]
-            log.info(f"滑动后词条分割结果: {new_parts}")
+            parts_left = ocr_affix(new_image)
+            log.info(f"第{round_num}轮左滑识别: {parts_left}")
+            all_results.append(parts_left)
 
-            if new_parts:
-                fourth = new_parts[0] if len(new_parts) == 1 else new_parts[-1]
-                confirmed.append(fourth)
-                log.info(f"第4段补全: {fourth}")
-            else:
-                confirmed.append(parts[3])
-                log.warning("滑动后识别失败，使用原始第4段结果")
-        else:
-            confirmed.append(parts[3])
-            log.warning("滑动后截图失败，使用原始第4段结果")
+        # 右滑回来（看前3段）
+        swipe(log, x1 + 20, mid_y, x2 - 20, mid_y, duration_ms=500)
+        time.sleep(2.0)
+        new_image = screenshot(log, CACHE_SCREENSHOT)
+        if new_image is not None:
+            parts_right = ocr_affix(new_image)
+            log.info(f"第{round_num}轮右滑识别: {parts_right}")
+            all_results.append(parts_right)
 
-        return confirmed
+    # 投票：把所有轮次中出现的片段统计频次
+    # 真词条反复出现（高票），乱码每次不同（低票淘汰）
+    all_parts = []
+    for r in all_results:
+        all_parts.extend(r)
 
-    return parts
+    counter = Counter(all_parts)
+    # 按出现次数降序，同票按长度降序（更完整的优先）
+    sorted_parts = sorted(counter.items(), key=lambda x: (-x[1], -len(x[0])))
+    confirmed = [p for p, count in sorted_parts[:4]]
+
+    log.info(f"投票统计: {[(p, c) for p, c in sorted_parts[:6]]}")
+    log.info(f"最终词条: {confirmed}")
+
+    return confirmed
 
 
 # ── 主流程 ─────────────────────────────────────────────────────────
