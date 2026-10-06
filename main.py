@@ -7,6 +7,7 @@
     python main.py              # 从头跑全部阶段
     python main.py --from guide # 从指定阶段开始跑
     python main.py --only launch # 只跑单个阶段
+    python main.py --rank A8-10  # 指定目标段位层级
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ STAGES = [
 ]
 
 
-def run_stage(name: str, label: str, module: str) -> int:
+def run_stage(name: str, label: str, module: str, **kwargs) -> int:
     print(f"\n{'=' * 50}")
     print(f"阶段: {name} — {label}")
     print(f"{'=' * 50}")
@@ -40,7 +41,7 @@ def run_stage(name: str, label: str, module: str) -> int:
         return 1
 
     try:
-        rc = mod.run()
+        rc = mod.run(**kwargs) if kwargs else mod.run()
     except Exception as e:
         print(f"[ERROR] 阶段异常: {name}: {e}")
         return 1
@@ -63,6 +64,8 @@ def main() -> int:
                         help="只跑指定阶段")
     parser.add_argument("--skip-tools-check", action="store_true",
                         help="跳过工具自包含检测")
+    parser.add_argument("--rank", dest="rank_level", default=None,
+                        help="目标段位层级，如 A8-10。不指定则保持当前位置")
     args = parser.parse_args()
 
     # 工具自包含检测与部署
@@ -99,7 +102,11 @@ def main() -> int:
     print(f"计划阶段: {[n for n, _, _ in stages]}")
 
     for name, label, module in stages:
-        rc = run_stage(name, label, module)
+        # navigate 阶段传入目标段位层级参数
+        stage_kwargs = {}
+        if name == "navigate" and args.rank_level:
+            stage_kwargs["target_rank_level"] = args.rank_level
+        rc = run_stage(name, label, module, **stage_kwargs)
         if rc != 0:
             print(f"\n统筹中止: 阶段 {name} 失败")
             print(f"已完成阶段: {[n for n, _, _ in stages[:stages.index((name, label, module))]]}")

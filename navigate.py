@@ -26,7 +26,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from common import setup_logging, snapshot_error, ensure_device, screenshot, tap, check_keywords, get_rank_level
+from common import setup_logging, snapshot_error, ensure_device, screenshot, tap, check_keywords, get_rank_level, rank_to_global
 
 # ── 配置 ────────────────────────────────────────────────────────────
 
@@ -102,7 +102,14 @@ log = setup_logging("navigate")
 
 # ── 主流程 ─────────────────────────────────────────────────────────
 
-def run() -> int:
+def run(target_rank_level: str | None = None) -> int:
+    """导航到词条首领一览界面。
+
+    Args:
+        target_rank_level: 目标段位层级，格式如 "A8-10"。
+            None 表示不切换，保持当前位置。如果指定且与当前不一致，
+            会先切换到目标位置再点击开始对局。
+    """
     log.info("=" * 50)
     log.info("崩坏：星穹铁道 导航阶段")
     log.info("=" * 50)
@@ -278,6 +285,33 @@ def run() -> int:
                     log.info(f"当前难度: {CURRENT_RANK_LEVEL}")
                 else:
                     log.warning("难度信息识别失败，继续流程")
+
+                # 如果指定了目标段位层级，且与当前不一致，执行切换
+                if target_rank_level and rank_info and rank_info["rank"] and rank_info["level"]:
+                    target_rank, target_level_str = target_rank_level.split("-", 1)
+                    target_level = int(target_level_str)
+                    current_global = rank_to_global(rank_info["rank"], int(rank_info["level"]))
+                    target_global = rank_to_global(target_rank, target_level)
+                    if current_global != target_global:
+                        log.info(f"需要切换: {CURRENT_RANK_LEVEL} -> {target_rank_level}")
+                        from adjust import adjust_level
+                        ok = adjust_level(target_rank, target_level)
+                        if not ok:
+                            log.error(f"段位层级切换失败: {target_rank_level}")
+                            snapshot_error(log, "adjust_failed",
+                                           f"切换到 {target_rank_level} 失败",
+                                           {"current": CURRENT_RANK_LEVEL, "target": target_rank_level}, image)
+                            return 1
+                        # 切换后更新当前难度信息
+                        image2 = screenshot(log)
+                        if image2 is not None:
+                            rank_info2 = get_rank_level(image2, log)
+                            if rank_info2 and rank_info2["combined"]:
+                                CURRENT_RANK_LEVEL = rank_info2["combined"]
+                                log.info(f"切换后难度: {CURRENT_RANK_LEVEL}")
+                    else:
+                        log.info(f"已在目标位置 {target_rank_level}，无需切换")
+
                 # 点击"开始对局"按钮
                 current_interval = INITIAL_INTERVAL
                 tap(log, *START_BATTLE_TAP)
