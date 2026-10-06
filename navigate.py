@@ -55,22 +55,16 @@ ENTER_KEYWORDS = [
 ]
 ENTER_TAP = (1042, 617)
 
-# 货币战争主界面
-WAR_MAIN_KEYWORDS = [
-    {"keyword": "货币战争", "area": (980, 625, 1085, 670)},
-]
+# 货币战争主界面（图片模板匹配）
+WAR_MAIN_AREA = (965, 633, 1105, 663)
 START_TAP = (1115, 645)
 
-# 模式选择界面
-MODE_KEYWORDS = [
-    {"keyword": "进入标准博弈", "area": (980, 625, 1110, 650)},
-]
+# 模式选择界面（图片模板匹配）
+MODE_AREA = (980, 628, 1110, 650)
 MODE_ENTER_TAP = (1115, 645)
 
-# 标准博弈界面
-RANK_KEYWORDS = [
-    {"keyword": "开始对局", "area": (1045, 630, 1130, 655)},
-]
+# 标准博弈界面（图片模板匹配）
+RANK_AREA = (1048, 632, 1130, 655)
 START_BATTLE_TAP = (1087, 642)
 
 # 词条首领一览界面
@@ -146,8 +140,9 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 5. 等待货币战争主界面 → 点击开始按钮 ──
     if not proceed_to_next(
-        log, WAR_MAIN_KEYWORDS, ENTER_TAP, "war_main",
+        log, None, ENTER_TAP, "war_main",
         cache_path=CACHE_SCREENSHOT,
+        template=("ui", WAR_MAIN_AREA),
     ):
         return 1
     tap(log, *START_TAP)
@@ -155,8 +150,9 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 6. 等待模式选择界面 → 点击进入标准博弈 ──
     if not proceed_to_next(
-        log, MODE_KEYWORDS, START_TAP, "mode",
+        log, None, START_TAP, "mode",
         cache_path=CACHE_SCREENSHOT,
+        template=("ui", MODE_AREA),
     ):
         return 1
     tap(log, *MODE_ENTER_TAP)
@@ -164,8 +160,9 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 7. 等待标准博弈界面 → 记录难度 → 点击开始对局 ──
     if not proceed_to_next(
-        log, RANK_KEYWORDS, MODE_ENTER_TAP, "rank",
+        log, None, MODE_ENTER_TAP, "rank",
         cache_path=CACHE_SCREENSHOT,
+        template=("ui", RANK_AREA),
     ):
         return 1
 

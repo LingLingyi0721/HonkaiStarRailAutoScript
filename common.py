@@ -170,6 +170,23 @@ def check_keywords(log: logging.Logger, image: np.ndarray,
     return False
 
 
+def check_template(log: logging.Logger, image: np.ndarray,
+                   category: str, area: tuple[int, int, int, int],
+                   obj_id: str) -> bool:
+    """在指定区域做模板匹配，命中返回 True。
+
+    日志：check <obj_id>: found (sim=0.xx) / check <obj_id>: not found (best sim=0.xx)
+    """
+    from perception.templates import template_lib
+    template_lib.reload()
+    name, sim = template_lib.match(image, category, area=area)
+    if name is not None:
+        log.info(f"check {obj_id}: found (sim={sim:.2f})")
+        return True
+    log.info(f"check {obj_id}: not found (best sim={sim:.2f})")
+    return False
+
+
 # ── 通用兜底机制 ───────────────────────────────────────────────────
 
 def _capture_corner(log: logging.Logger) -> np.ndarray | None:
@@ -202,7 +219,7 @@ def region_similar(a: np.ndarray | None, b: np.ndarray | None) -> float:
 
 def proceed_to_next(
     log: logging.Logger,
-    next_keywords: list[dict],
+    next_keywords: list[dict] | None,
     tap_pos: tuple[int, int] | None,
     obj_id: str,
     cache_path: Path | None = None,
@@ -211,8 +228,11 @@ def proceed_to_next(
     interval: float = 3.0,
     max_rounds: int = 3,
     timeout: float | None = None,
+    template: tuple[str, tuple[int, int, int, int]] | None = None,
 ) -> bool:
-    """等待 next_keywords 出现，未出现则点击推进并检测界面切换。
+    """等待目标界面出现，未出现则点击推进并检测界面切换。
+
+    template 不为 None 时用图片模板匹配（category, area），否则用 OCR 关键词。
 
     timeout 不为 None 时进入持续识别模式：每 interval 秒识别一次，
     直到命中或累计超时，不点击、不检测切换（用于启动/加载阶段）。
@@ -223,12 +243,17 @@ def proceed_to_next(
       - 相似度 < SWITCH_THRESHOLD → 界面已切换，返回 True
     - detect_switch=False（"点击进入"阶段）只重复识别，不点击
     """
+    def _check(image: np.ndarray) -> bool:
+        if template is not None:
+            return check_template(log, image, template[0], template[1], obj_id)
+        return check_keywords(log, image, next_keywords, obj_id)
+
     if timeout is not None:
         start = time.time()
         while time.time() - start < timeout:
             t0 = time.time()
             image = screenshot(log, cache_path, quiet=True)
-            if image is not None and check_keywords(log, image, next_keywords, obj_id):
+            if image is not None and _check(image):
                 return True
             time.sleep(max(0.0, interval - (time.time() - t0)))
         log.error(f"proceed failed (timeout {timeout}s): {obj_id}")
@@ -242,7 +267,7 @@ def proceed_to_next(
         for _ in range(max_checks):
             t0 = time.time()
             image = screenshot(log, cache_path, quiet=True)
-            if image is not None and check_keywords(log, image, next_keywords, obj_id):
+            if image is not None and _check(image):
                 return True
             time.sleep(max(0.0, interval - (time.time() - t0)))
 
