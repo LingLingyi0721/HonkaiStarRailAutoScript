@@ -99,21 +99,19 @@ def run(target_rank_level: str | None = None) -> int:
         target_rank_level: 目标段位层级，格式如 "A8-10"。
             None 表示不切换，保持当前位置。
     """
-    log.info("=" * 50)
-    log.info("崩坏：星穹铁道 导航阶段")
-    log.info("=" * 50)
+    log.info("navigate start")
 
     try:
         ensure_device(log)
     except Exception as e:
-        log.error(f"设备连接失败: {e}")
+        log.error(f"device connect failed: {e}")
         return 1
 
     start_time = time.time()
 
     # ── 1. 等待登录界面 → 点击屏幕中央 ──
     if not proceed_to_next(
-        log, LOGIN_KEYWORDS, None, "登录界面确认",
+        log, LOGIN_KEYWORDS, None,
         cache_path=CACHE_SCREENSHOT, max_screenshots=15,
     ):
         return 1
@@ -122,7 +120,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 2. 等待游戏主界面 → 点击指南入口 ──
     if not proceed_to_next(
-        log, GAME_KEYWORDS, None, "游戏界面确认",
+        log, GAME_KEYWORDS, None,
         cache_path=CACHE_SCREENSHOT, max_screenshots=15,
     ):
         return 1
@@ -131,7 +129,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 3. 等待指南界面 → 点击旷宇纷争入口 ──
     if not proceed_to_next(
-        log, GUIDE_KEYWORDS, GUIDE_ENTRY, "指南界面确认",
+        log, GUIDE_KEYWORDS, GUIDE_ENTRY,
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
@@ -140,12 +138,12 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 4. 等待旷宇纷争界面 → 点击前往参与 ──
     if not proceed_to_next(
-        log, WAR_KEYWORDS, WAR_ENTRY, "旷宇纷争界面确认",
+        log, WAR_KEYWORDS, WAR_ENTRY,
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
     if not proceed_to_next(
-        log, ENTER_KEYWORDS, None, "前往参与确认",
+        log, ENTER_KEYWORDS, None,
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
@@ -154,7 +152,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 5. 等待货币战争主界面 → 点击开始按钮 ──
     if not proceed_to_next(
-        log, WAR_MAIN_KEYWORDS, ENTER_TAP, "货币战争主界面确认",
+        log, WAR_MAIN_KEYWORDS, ENTER_TAP,
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
@@ -163,7 +161,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 6. 等待模式选择界面 → 点击进入标准博弈 ──
     if not proceed_to_next(
-        log, MODE_KEYWORDS, START_TAP, "模式选择界面确认",
+        log, MODE_KEYWORDS, START_TAP,
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
@@ -172,7 +170,7 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 7. 等待标准博弈界面 → 记录难度 → 点击开始对局 ──
     if not proceed_to_next(
-        log, RANK_KEYWORDS, MODE_ENTER_TAP, "标准博弈界面确认",
+        log, RANK_KEYWORDS, MODE_ENTER_TAP,
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
@@ -180,13 +178,14 @@ def run(target_rank_level: str | None = None) -> int:
     # 记录难度信息
     global CURRENT_RANK_LEVEL
     image = screenshot(log, CACHE_SCREENSHOT)
+    rank_info = None
     if image is not None:
         rank_info = get_rank_level(image, log)
         if rank_info:
             CURRENT_RANK_LEVEL = rank_info["combined"]
-            log.info(f"当前难度: {CURRENT_RANK_LEVEL}")
+            log.info(f"rank: {CURRENT_RANK_LEVEL}")
         else:
-            log.warning("难度信息识别失败，继续流程")
+            log.warning("rank ocr failed, continue")
 
     # 段位层级切换
     if target_rank_level and rank_info and rank_info["rank"] and rank_info["level"]:
@@ -195,13 +194,13 @@ def run(target_rank_level: str | None = None) -> int:
         current_global = rank_to_global(rank_info["rank"], int(rank_info["level"]))
         target_global = rank_to_global(target_rank, target_level)
         if current_global != target_global:
-            log.info(f"需要切换: {CURRENT_RANK_LEVEL} -> {target_rank_level}")
+            log.info(f"adjust: {CURRENT_RANK_LEVEL} -> {target_rank_level}")
             from adjust import adjust_level
             ok = adjust_level(target_rank, target_level)
             if not ok:
-                log.error(f"段位层级切换失败: {target_rank_level}")
+                log.error(f"adjust failed: {target_rank_level}")
                 snapshot_error(log, "adjust_failed",
-                               f"切换到 {target_rank_level} 失败",
+                               f"adjust failed: {target_rank_level}",
                                {"current": CURRENT_RANK_LEVEL, "target": target_rank_level}, image)
                 return 1
             image2 = screenshot(log)
@@ -209,9 +208,9 @@ def run(target_rank_level: str | None = None) -> int:
                 rank_info2 = get_rank_level(image2, log)
                 if rank_info2 and rank_info2["combined"]:
                     CURRENT_RANK_LEVEL = rank_info2["combined"]
-                    log.info(f"切换后难度: {CURRENT_RANK_LEVEL}")
+                    log.info(f"adjusted: {CURRENT_RANK_LEVEL}")
         else:
-            log.info(f"已在目标位置 {target_rank_level}，无需切换")
+            log.info(f"no adjust needed: {target_rank_level}")
 
     # 点击开始对局
     tap(log, *START_BATTLE_TAP)
@@ -219,12 +218,12 @@ def run(target_rank_level: str | None = None) -> int:
 
     # ── 8. 等待词条首领一览界面 → 结束 ──
     if not proceed_to_next(
-        log, NEXT_STEP_KEYWORDS, START_BATTLE_TAP, "词条首领一览界面确认",
+        log, NEXT_STEP_KEYWORDS, START_BATTLE_TAP,
         cache_path=CACHE_SCREENSHOT,
     ):
         return 1
 
-    log.info(f"总耗时: {time.time() - start_time:.1f}秒")
+    log.info(f"done: {time.time() - start_time:.1f}s")
     return 0
 
 

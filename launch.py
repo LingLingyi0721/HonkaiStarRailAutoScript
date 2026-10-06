@@ -27,46 +27,44 @@ def launch_app() -> None:
                      "-c", "android.intent.category.LAUNCHER",
                      "-n", f"{PACKAGE}/{ACTIVITY}")
         if "Error" not in result and "Warning" not in result:
-            log.info("am start 成功")
+            log.info("am start ok")
             return
         if "Warning: Activity not started" in result:
-            log.info("app 已在运行")
+            log.info("app already running")
             return
-        log.warning(f"am start 异常: {result.strip()[:120]}")
+        log.warning(f"am start warning: {result.strip()[:120]}")
     except Exception as e:
-        log.warning(f"am start 失败: {e}")
+        log.warning(f"am start failed: {e}")
 
     try:
         result = adb("shell", "monkey", "-p", PACKAGE,
                      "-c", "android.intent.category.LAUNCHER",
                      "--pct-syskeys", "0", "1")
         if "Events injected" in result:
-            log.info("monkey 启动成功")
+            log.info("monkey start ok")
             return
-        log.warning(f"monkey 异常: {result.strip()[:120]}")
+        log.warning(f"monkey warning: {result.strip()[:120]}")
     except Exception as e:
-        log.error(f"monkey 启动失败: {e}")
+        log.error(f"monkey failed: {e}")
         raise
 
 
 def run() -> int:
-    log.info("=" * 50)
-    log.info("崩坏：星穹铁道 启动阶段")
-    log.info("=" * 50)
+    log.info("launch start")
 
     try:
         ensure_device(log)
     except Exception as e:
-        log.error(f"设备连接失败: {e}")
+        log.error(f"device connect failed: {e}")
         return 1
 
     try:
         launch_app()
     except Exception as e:
-        log.error(f"app 启动失败: {e}")
+        log.error(f"app launch failed: {e}")
         return 1
 
-    log.info("启动完成，交由 navigate 接管")
+    log.info("launch done")
     return 0
 
 

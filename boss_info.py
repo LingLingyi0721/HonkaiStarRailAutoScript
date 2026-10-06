@@ -115,10 +115,10 @@ def _match_dict(cleaned: str, candidates: list[str], label: str) -> str:
 
     if best_match and best_distance <= 2:
         if best_match != cleaned:
-            log.info(f"  {label}匹配: {repr(cleaned)} -> {repr(best_match)} (距离={best_distance})")
+            log.info(f"  {label} match: {repr(cleaned)} -> {repr(best_match)} (dist={best_distance})")
         return best_match
     else:
-        log.info(f"  {label}未匹配: {repr(cleaned)} (最近={repr(best_match)} 距离={best_distance})")
+        log.info(f"  {label} no match: {repr(cleaned)} (best={repr(best_match)} dist={best_distance})")
         return cleaned
 
 
@@ -187,7 +187,7 @@ def get_dimensions(image: np.ndarray) -> dict:
     # 按 x 坐标排序
     dim_items.sort(key=lambda item: item[0])
 
-    log.info(f"三位面区域识别到 {len(dim_items)} 项:")
+    log.info(f"dimensions found: {len(dim_items)}")
     for x, y, text, conf in dim_items:
         log.info(f"  x={x:.0f} y={y:.0f} conf={conf:.2f} text={repr(text)}")
 
@@ -201,7 +201,7 @@ def get_dimensions(image: np.ndarray) -> dict:
             results_dict[key] = matched
         else:
             results_dict[key] = ""
-            log.warning(f"{key} 识别失败")
+            log.warning(f"{key} not found")
 
     return results_dict
 
@@ -217,11 +217,11 @@ def get_enemy_difficulty(image: np.ndarray) -> str | None:
     # 找包含"敌人难度"或"难度"的文本
     for x, y, text, conf in diff_items:
         if "难度" in text or "敌人" in text:
-            log.info(f"敌人难度区域: conf={conf:.2f} text={repr(text)}")
+            log.info(f"difficulty: conf={conf:.2f} text={repr(text)}")
             numbers = re.findall(r'\d+', text)
             if numbers:
                 difficulty = numbers[-1]
-                log.info(f"敌人难度: {difficulty}")
+                log.info(f"difficulty: {difficulty}")
                 return difficulty
 
     # 如果没找到"敌人难度"文字，尝试在 x<200 区域找纯数字
@@ -230,10 +230,10 @@ def get_enemy_difficulty(image: np.ndarray) -> str | None:
             numbers = re.findall(r'\d+', text)
             if numbers:
                 difficulty = numbers[-1]
-                log.info(f"敌人难度(位置推断): {difficulty} from {repr(text)}")
+                log.info(f"difficulty (pos): {difficulty} from {repr(text)}")
                 return difficulty
 
-    log.warning("敌人难度识别失败")
+    log.warning("difficulty not found")
     return None
 
 
@@ -257,7 +257,7 @@ def get_affixes(image: np.ndarray, expected_count: int | None = None) -> list[st
     # 按 x 坐标排序
     affix_raw.sort(key=lambda item: item[0])
 
-    log.info(f"词条区域识别到 {len(affix_raw)} 项:")
+    log.info(f"affixes found: {len(affix_raw)}")
     for x, text, conf in affix_raw:
         log.info(f"  x={x:.0f} conf={conf:.2f} text={repr(text)}")
 
@@ -267,7 +267,7 @@ def get_affixes(image: np.ndarray, expected_count: int | None = None) -> list[st
         cleaned = match_affix(text)
         if len(cleaned) >= 2:
             affixes.append(cleaned)
-            log.info(f"  清洗: {repr(text)} -> {repr(cleaned)}")
+            log.info(f"  match: {repr(text)} -> {repr(cleaned)}")
 
     # 如果需要4段词条但只识别到不足4段，或第4段可能被截断（少于3字），左滑补全
     need_slide = False
@@ -276,11 +276,11 @@ def get_affixes(image: np.ndarray, expected_count: int | None = None) -> list[st
             need_slide = True
         elif len(affixes) == 4 and len(affixes[3]) < 3:
             # 第4段词条少于3字，可能是截断的
-            log.info(f"第4段词条 '{affixes[3]}' 可能被截断，左滑补全")
+            log.info(f"affix4 truncated: '{affixes[3]}', slide to complete")
             need_slide = True
 
     if need_slide:
-        log.info("左滑补全第4段词条")
+        log.info("slide left for affix4")
         swipe(log, AFFIX_SWIPE_X1, AFFIX_SWIPE_Y, AFFIX_SWIPE_X2, AFFIX_SWIPE_Y, duration_ms=500)
         time.sleep(2.0)
         img_slide = screenshot(log, CACHE_SCREENSHOT)
@@ -293,11 +293,11 @@ def get_affixes(image: np.ndarray, expected_count: int | None = None) -> list[st
                     if len(cleaned) >= 2:
                         # 如果是新的词条（不在已有列表中），添加
                         if cleaned not in affixes:
-                            log.info(f"  左滑补全: {repr(text)} -> {repr(cleaned)}")
+                            log.info(f"  slide match: {repr(text)} -> {repr(cleaned)}")
                             # 如果第4段被截断，替换它
                             if len(affixes) == 4 and len(affixes[3]) < 3 and len(cleaned) > len(affixes[3]):
                                 affixes[3] = cleaned
-                                log.info(f"  替换截断词条: {repr(affixes[3])}")
+                                log.info(f"  replace truncated: {repr(affixes[3])}")
                             else:
                                 affixes.append(cleaned)
 
@@ -305,32 +305,28 @@ def get_affixes(image: np.ndarray, expected_count: int | None = None) -> list[st
         swipe(log, AFFIX_SWIPE_X2, AFFIX_SWIPE_Y, AFFIX_SWIPE_X1, AFFIX_SWIPE_Y, duration_ms=500)
         time.sleep(2.0)
 
-    log.info(f"最终词条: {affixes}")
+    log.info(f"affixes: {affixes}")
     return affixes
 
 
 # ── 主流程 ─────────────────────────────────────────────────────────
 
 def run() -> int:
-    log.info("=" * 50)
-    log.info("崩坏：星穹铁道 BOSS 信息识别")
-    log.info("=" * 50)
+    log.info("boss_info start")
 
     try:
         ensure_device(log)
     except Exception as e:
-        log.error(f"设备连接失败: {e}")
+        log.error(f"device connect failed: {e}")
         return 1
 
     image = screenshot(log, CACHE_SCREENSHOT)
     if image is None:
-        log.error("截图失败，无法继续")
+        log.error("screenshot failed")
         return 1
 
     # ── 1. 段位和层级 ──
-    log.info("-" * 30)
-    log.info("步骤1: 段位和层级")
-    log.info("-" * 30)
+    log.info("step1: rank & level")
 
     rank_info = None
     try:
@@ -342,37 +338,28 @@ def run() -> int:
             else:
                 rank_name, level_text = combined, None
             rank_info = {"rank": rank_name, "level": level_text, "combined": combined}
-            log.info(f"从 navigate 模块获取: {combined}")
+            log.info(f"rank from navigate: {combined}")
     except (ImportError, AttributeError):
         pass
 
     if rank_info is None:
-        log.info("navigate 模块无段位信息，尝试本地识别")
+        log.info("rank from local ocr")
         rank_info = get_rank_level(image, log)
 
     # ── 2. RapidOCR 全屏识别 ──
-    log.info("-" * 30)
-    log.info("步骤2: RapidOCR 全屏识别")
-    log.info("-" * 30)
 
     # ── 3. 三位面文字 ──
-    log.info("-" * 30)
-    log.info("步骤3: 三位面")
-    log.info("-" * 30)
+    log.info("step3: dimensions")
 
     dim_info = get_dimensions(image)
 
     # ── 4. 敌人难度 ──
-    log.info("-" * 30)
-    log.info("步骤4: 敌人难度")
-    log.info("-" * 30)
+    log.info("step4: difficulty")
 
     difficulty = get_enemy_difficulty(image)
 
     # ── 5. 词条文字 ──
-    log.info("-" * 30)
-    log.info("步骤5: 词条")
-    log.info("-" * 30)
+    log.info("step5: affixes")
 
     expected_count = RANK_AFFIX_COUNT.get(rank_info["rank"]) if rank_info else None
     affixes = get_affixes(image, expected_count=expected_count)
@@ -382,40 +369,19 @@ def run() -> int:
         actual_count = len(affixes)
         if expected_count is not None and actual_count < expected_count:
             log.error(
-                f"词条数量校验失败: 段位{rank_info['rank']}应有{expected_count}个词条，"
-                f"实际识别到{actual_count}个"
+                f"affix count mismatch: rank {rank_info['rank']} expected {expected_count}, "
+                f"got {actual_count}"
             )
             snapshot_error(
                 log, "affix_count_mismatch",
-                f"段位{rank_info['rank']}应有{expected_count}个词条，实际识别到{actual_count}个",
+                f"affix count mismatch: rank {rank_info['rank']} expected {expected_count}, got {actual_count}",
                 {"rank": rank_info["rank"], "expected": expected_count,
                  "actual": actual_count, "affixes": affixes},
                 image,
             )
         else:
-            log.info(f"词条数量校验通过: 段位{rank_info['rank']} → {actual_count}/{expected_count}个词条")
+            log.info(f"affix count ok: rank {rank_info['rank']} -> {actual_count}/{expected_count}")
 
-    # ── 汇总输出 ──
-    log.info("=" * 50)
-    log.info("BOSS 信息汇总")
-    log.info("=" * 50)
-
-    if rank_info:
-        log.info(f"当前段位：{rank_info['rank']}（{rank_info['level']}）")
-    else:
-        log.warning("当前段位：识别失败")
-
-    for label, key in [("第一位面", "dimension1"), ("第二位面", "dimension2"), ("第三位面", "dimension3")]:
-        text = dim_info.get(key, "")
-        log.info(f"{label}：{text if text else '(空)'}")
-
-    if difficulty:
-        log.info(f"敌人难度：{difficulty}")
-    else:
-        log.warning("敌人难度：识别失败")
-
-    for i, affix in enumerate(affixes, 1):
-        log.info(f"词条{i}：{affix}")
 
     # ── 结构化 JSON 输出 ──
     output_data = {
