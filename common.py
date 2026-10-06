@@ -193,15 +193,14 @@ def get_rank_level(image: np.ndarray, log: logging.Logger) -> dict | None:
 # ── 结构化输出 ─────────────────────────────────────────────────────
 
 def save_output(log: logging.Logger, subdir: str, data: dict) -> Path:
-    """将结构化数据保存为 JSON 文件到 output/{subdir}/ 目录。
+    """将结构化数据保存为 JSON 文件到 output/{subdir}/{subdir}.json。
 
-    文件名格式：YYYY-MM-DD_HH-MM-SS.json
+    固定文件名，同名直接替换（每一局是独立的，不需要保留历史）。
     返回保存的文件路径。
     """
     out_dir = OUTPUT_DIR / subdir
     out_dir.mkdir(parents=True, exist_ok=True)
-    ts = time.strftime("%Y-%m-%d_%H-%M-%S")
-    out_path = out_dir / f"{ts}.json"
+    out_path = out_dir / f"{subdir}.json"
     out_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     log.info(f"结构化输出已保存: {out_path}")
     return out_path
