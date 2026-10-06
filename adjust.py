@@ -8,13 +8,10 @@ from __future__ import annotations
 
 import time
 
-import cv2
-
 from common import (
     setup_logging, ensure_device, screenshot,
-    get_rank_level, rank_to_global, global_to_rank,
-    RANK_LEVELS, RANK_ORDER, LEVEL_UP_AREA, LEVEL_DOWN_AREA,
-    tap,
+    get_rank_level, rank_to_global,
+    LEVEL_UP_AREA, LEVEL_DOWN_AREA, tap,
 )
 from perception.matcher import area_center
 
@@ -41,7 +38,7 @@ def adjust_level(target_rank: str, target_level: int, max_clicks: int = 60) -> b
 
     rank_info = get_rank_level(img, log)
     if rank_info is None or rank_info["rank"] is None:
-        log.error("无法识别当前段位")
+        log.error("cannot identify rank")
         return False
 
     current_rank = rank_info["rank"]
@@ -52,7 +49,7 @@ def adjust_level(target_rank: str, target_level: int, max_clicks: int = 60) -> b
         from perception.matcher import ocr_number
         current_level_str = ocr_number(img, area=(180, 295, 285, 380))
         if not current_level_str or not current_level_str.isdigit():
-            log.error("无法识别当前层级数字")
+            log.error("cannot identify level number")
             return False
 
     current_level = int(current_level_str)

@@ -31,20 +31,20 @@ def run_stage(name: str, label: str, module: str, **kwargs) -> int:
     try:
         mod = __import__(module)
     except ImportError as e:
-        print(f"[ERROR] 模块导入失败: {module}: {e}")
+        print(f"[ERROR] import failed: {module}: {e}")
         return 1
 
     try:
         rc = mod.run(**kwargs) if kwargs else mod.run()
     except Exception as e:
-        print(f"[ERROR] 阶段异常: {name}: {e}")
+        print(f"[ERROR] stage error: {name}: {e}")
         return 1
 
     if rc != 0:
-        print(f"[ERROR] 阶段失败: {name} (rc={rc})")
+        print(f"[ERROR] stage failed: {name} (rc={rc})")
         return rc
 
-    print(f"[OK] 阶段完成: {name}")
+    print(f"[OK] stage done: {name}")
     return 0
 
 
@@ -71,14 +71,14 @@ def main() -> int:
     if args.only:
         stages = [(n, l, m) for n, l, m in STAGES if n == args.only]
         if not stages:
-            print(f"[ERROR] 未知阶段: {args.only}")
-            print(f"可用阶段: {[n for n, _, _ in STAGES]}")
+            print(f"[ERROR] unknown stage: {args.only}")
+            print(f"available: {[n for n, _, _ in STAGES]}")
             return 1
     elif args.start:
         idx = next((i for i, (n, _, _) in enumerate(STAGES) if n == args.start), None)
         if idx is None:
-            print(f"[ERROR] 未知阶段: {args.start}")
-            print(f"可用阶段: {[n for n, _, _ in STAGES]}")
+            print(f"[ERROR] unknown stage: {args.start}")
+            print(f"available: {[n for n, _, _ in STAGES]}")
             return 1
         stages = STAGES[idx:]
     else:
@@ -96,6 +96,7 @@ def main() -> int:
     print(f"stages: {[n for n, _, _ in stages]}")
 
     for name, label, module in stages:
+        stage_kwargs = {}
         if name == "navigate" and args.rank_level:
             stage_kwargs["target_rank_level"] = args.rank_level
         rc = run_stage(name, label, module, **stage_kwargs)
