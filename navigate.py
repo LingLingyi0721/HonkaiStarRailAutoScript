@@ -36,14 +36,8 @@ GAME_KEYWORDS = [
 ]
 GUIDE_ENTRY = (1010, 40)
 
-# 指南界面（5 个导航词任一命中即可，共用同一区域）
-GUIDE_KEYWORDS = [
-    {"keyword": "每日实训", "area": (85, 35, 170, 60)},
-    {"keyword": "生存索引", "area": (85, 35, 170, 60)},
-    {"keyword": "旷宇纷争", "area": (85, 35, 170, 60)},
-    {"keyword": "逐光捡金", "area": (85, 35, 170, 60)},
-    {"keyword": "开拓历程", "area": (85, 35, 170, 60)},
-]
+# 指南界面（图片模板匹配）
+GUIDE_AREA = (1210, 530, 1240, 560)
 WAR_ENTRY = (372, 115)
 
 # 旷宇纷争界面
@@ -118,8 +112,9 @@ def run(target_rank_level: str | None = None) -> int:
     # ── 3. 等待指南界面 → 点击旷宇纷争入口 ──
     log.info("stage 3: wait guide")
     if not proceed_to_next(
-        log, GUIDE_KEYWORDS, GUIDE_ENTRY, "guide",
+        log, None, GUIDE_ENTRY, "guide",
         cache_path=CACHE_SCREENSHOT,
+        template=("ui", GUIDE_AREA),
     ):
         return 1
     tap(log, *WAR_ENTRY)
