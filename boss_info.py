@@ -3,12 +3,13 @@
 前置：navigate.py 已进入词条首领一览界面。
 输出：段位层级、三位面、敌人难度、词条 → output/boss_info.json
 引擎：RapidOCR（全屏识别）+ ddddocr（数字）
+
+本模块只被 navigate.py 调用，不独立运行。
 """
 
 from __future__ import annotations
 
 import re
-import sys
 import time
 from pathlib import Path
 
@@ -16,7 +17,7 @@ import cv2
 import numpy as np
 
 from common import (
-    setup_logging, snapshot_error, ensure_device, screenshot, tap, swipe,
+    setup_logging, snapshot_error, screenshot, tap, swipe,
     get_rank_level, save_output,
 )
 
@@ -306,20 +307,15 @@ def get_affixes(image: np.ndarray, expected_count: int | None = None) -> list[st
 # ── 主流程 ─────────────────────────────────────────────────────────
 
 def run() -> int:
+    """识别 BOSS 信息。只被 navigate.py 调用。"""
     log.info("boss_info start")
-
-    try:
-        ensure_device(log)
-    except Exception as e:
-        log.error(f"device connect failed: {e}")
-        return 1
 
     image = screenshot(log, CACHE_SCREENSHOT)
     if image is None:
         log.error("screenshot failed")
         return 1
 
-    # ── 1. 段位和层级 ──
+    # ── 1. 段位和层级（从 navigate 获取）──
     log.info("step1: rank & level")
 
     rank_info = None
@@ -337,8 +333,7 @@ def run() -> int:
         pass
 
     if rank_info is None:
-        log.info("rank from local ocr")
-        rank_info = get_rank_level(image, log)
+        log.warning("rank not available from navigate, skip")
 
     # ── 2. RapidOCR 全屏识别 ──
 
@@ -395,7 +390,3 @@ def run() -> int:
     save_output(log, "boss_info", output_data)
 
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(run())

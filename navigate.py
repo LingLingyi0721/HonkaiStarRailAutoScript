@@ -227,6 +227,12 @@ def run(target_rank_level: str | None = None) -> int:
         return 1
 
     log.info(f"done: {time.time() - start_time:.1f}s")
+
+    # ── 9. 调用 boss_info 识别 BOSS 信息 ──
+    log.info("stage 9: boss_info")
+    from boss_info import run as boss_info_run
+    boss_info_run()
+
     return 0
 
 
