@@ -11,6 +11,30 @@ import time
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent / "game.db"
+AFFIX_CSV_PATH = Path(__file__).resolve().parent / "词缀描述数据库.CSV"
+
+
+def rebuild_affixes() -> int:
+    """从本地 CSV 重建词缀表，返回导入条数。"""
+    import csv
+    with _conn() as c:
+        c.execute("DROP TABLE IF EXISTS affixes")
+        c.execute("""CREATE TABLE affixes (
+            id INTEGER PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            description TEXT,
+            category TEXT
+        )""")
+        with open(AFFIX_CSV_PATH, "r", encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                name = r["名称"]
+                category = "侵蚀" if name.startswith("侵蚀") else "常规"
+                c.execute(
+                    "INSERT OR REPLACE INTO affixes (name, description, category) VALUES (?, ?, ?)",
+                    (name, r["描述"], category),
+                )
+        c.commit()
+        return c.execute("SELECT COUNT(*) FROM affixes").fetchone()[0]
 
 
 def _conn() -> sqlite3.Connection:
