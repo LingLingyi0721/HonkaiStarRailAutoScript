@@ -40,10 +40,7 @@ GUIDE_ENTRY = (1010, 40)
 GUIDE_AREA = (1210, 530, 1240, 560)
 WAR_ENTRY = (372, 115)
 
-# 旷宇纷争界面
-WAR_KEYWORDS = [
-    {"keyword": "货币战争", "area": (140, 195, 240, 230)},
-]
+
 # 前往参与按钮（图片模板匹配）
 ENTER_AREA = (1000, 605, 1085, 630)
 ENTER_TAP = (1042, 617)
@@ -119,14 +116,8 @@ def run(target_rank_level: str | None = None) -> int:
     tap(log, *WAR_ENTRY)
     time.sleep(2.0)
 
-    # ── 4. 等待旷宇纷争界面 → 点击前往参与 ──
-    log.info("stage 4: wait war")
-    if not proceed_to_next(
-        log, WAR_KEYWORDS, WAR_ENTRY, "war",
-        cache_path=CACHE_SCREENSHOT,
-    ):
-        return 1
-    log.info("stage 4b: wait enter")
+    # ── 4. 等待前往参与按钮 → 点击前往参与 ──
+    log.info("stage 4: wait enter")
     if not proceed_to_next(
         log, None, None, "enter",
         cache_path=CACHE_SCREENSHOT,
