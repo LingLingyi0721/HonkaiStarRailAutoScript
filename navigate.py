@@ -44,9 +44,8 @@ WAR_ENTRY = (372, 115)
 WAR_KEYWORDS = [
     {"keyword": "货币战争", "area": (140, 195, 240, 230)},
 ]
-ENTER_KEYWORDS = [
-    {"keyword": "前往参与", "area": (1000, 605, 1085, 630)},
-]
+# 前往参与按钮（图片模板匹配）
+ENTER_AREA = (1000, 605, 1085, 630)
 ENTER_TAP = (1042, 617)
 
 # 货币战争主界面（图片模板匹配）
@@ -129,8 +128,9 @@ def run(target_rank_level: str | None = None) -> int:
         return 1
     log.info("stage 4b: wait enter")
     if not proceed_to_next(
-        log, ENTER_KEYWORDS, None, "enter",
+        log, None, None, "enter",
         cache_path=CACHE_SCREENSHOT,
+        template=("ui", ENTER_AREA),
     ):
         return 1
     tap(log, *ENTER_TAP)
