@@ -67,10 +67,8 @@ MODE_ENTER_TAP = (1115, 645)
 RANK_AREA = (1048, 632, 1130, 655)
 START_BATTLE_TAP = (1087, 642)
 
-# 词条首领一览界面
-NEXT_STEP_KEYWORDS = [
-    {"keyword": "下一步", "area": (970, 645, 1040, 670)},
-]
+# 词条首领一览界面（图片模板匹配）
+NEXT_STEP_AREA = (970, 648, 1035, 668)
 
 # 当前局难度信息（段位+层级），供决策层AI使用
 CURRENT_RANK_LEVEL: str | None = None
@@ -218,21 +216,21 @@ def run(target_rank_level: str | None = None) -> int:
     tap(log, *START_BATTLE_TAP)
     time.sleep(2.0)
 
-    # ── 8. 等待词条首领一览界面 ──
-    log.info("stage 8: wait boss")
+    # ── 8. 调用 boss_info 识别 BOSS 信息 ──
+    log.info("stage 8: boss_info")
+    from boss_info import run as boss_info_run
+    boss_info_run()
+
+    # ── 9. 检测"下一步"控件（图片模板匹配）──
+    log.info("stage 9: wait next_step")
     if not proceed_to_next(
-        log, NEXT_STEP_KEYWORDS, START_BATTLE_TAP, "boss",
+        log, None, START_BATTLE_TAP, "next_step",
         cache_path=CACHE_SCREENSHOT,
+        template=("ui", NEXT_STEP_AREA),
     ):
         return 1
 
     log.info(f"done: {time.time() - start_time:.1f}s")
-
-    # ── 9. 调用 boss_info 识别 BOSS 信息 ──
-    log.info("stage 9: boss_info")
-    from boss_info import run as boss_info_run
-    boss_info_run()
-
     return 0
 
 
