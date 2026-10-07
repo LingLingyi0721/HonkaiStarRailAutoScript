@@ -64,8 +64,10 @@ NEXT_STEP_TAP = (1002, 658)
 # 第一位面过渡界面（图形匹配 + OCR"点击空白处继续"）
 DIM1_TRANSITION_AREA = (168, 558, 204, 594)
 DIM1_CONTINUE_KEYWORDS = [
-    {"keyword": "空白", "area": (550, 630, 740, 680)},
+    {"keyword": "空白处", "area": (550, 630, 740, 680)},
     {"keyword": "继续", "area": (550, 630, 740, 680)},
+    {"keyword": "点击", "area": (550, 630, 740, 680)},
+    {"keyword": "点击空白处继续", "area": (550, 630, 740, 680)},
 ]
 DIM1_CONTINUE_TAP = (645, 655)
 
