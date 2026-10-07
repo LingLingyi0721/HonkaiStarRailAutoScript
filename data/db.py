@@ -14,17 +14,53 @@ DB_PATH = Path(__file__).resolve().parent / "game.db"
 AFFIX_CSV_PATH = Path(__file__).resolve().parent / "词缀描述数据库.CSV"
 
 
-def rebuild_affixes() -> int:
-    """从本地 CSV 重建词缀表，返回导入条数。"""
-    import csv
+def init_db() -> dict:
+    """启动时初始化数据库。
+
+    - 建表（如不存在）
+    - 从 CSV 更新词缀表（静态数据，安全更新）
+    - 检查 active 对局，有则保留不动
+    - 返回 {"affixes": N, "active_game": id|None}
+    """
     with _conn() as c:
-        c.execute("DROP TABLE IF EXISTS affixes")
-        c.execute("""CREATE TABLE affixes (
+        # 建表
+        c.execute("""CREATE TABLE IF NOT EXISTS affixes (
             id INTEGER PRIMARY KEY,
             name TEXT UNIQUE NOT NULL,
             description TEXT,
             category TEXT
         )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            rank TEXT,
+            level TEXT,
+            dimension1 TEXT,
+            dimension2 TEXT,
+            dimension3 TEXT,
+            difficulty TEXT,
+            affixes TEXT,
+            result TEXT,
+            status TEXT DEFAULT 'active'
+        )""")
+        c.commit()
+
+    # 词缀表从 CSV 更新（静态数据，不影响对局）
+    affix_count = _update_affixes_from_csv()
+
+    # 检查 active 对局（不动）
+    active = get_active_game()
+    active_id = active["id"] if active else None
+
+    return {"affixes": affix_count, "active_game": active_id}
+
+
+def _update_affixes_from_csv() -> int:
+    """从 CSV 更新词缀表（INSERT OR REPLACE，不 DROP）。"""
+    import csv
+    if not AFFIX_CSV_PATH.exists():
+        return 0
+    with _conn() as c:
         with open(AFFIX_CSV_PATH, "r", encoding="utf-8-sig") as f:
             for r in csv.DictReader(f):
                 name = r["名称"]
