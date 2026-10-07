@@ -218,7 +218,7 @@ def run(target_rank_level: str | None = None) -> int:
     tap(log, *START_BATTLE_TAP)
     time.sleep(2.0)
 
-    # ── 8. 等待词条首领一览界面 → 结束 ──
+    # ── 8. 等待词条首领一览界面 ──
     log.info("stage 8: wait boss")
     if not proceed_to_next(
         log, NEXT_STEP_KEYWORDS, START_BATTLE_TAP, "boss",
