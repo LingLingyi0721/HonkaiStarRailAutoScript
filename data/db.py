@@ -12,23 +12,30 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent / "game.db"
 AFFIX_CSV_PATH = Path(__file__).resolve().parent / "词缀描述数据库.CSV"
+INVEST_CSV_PATH = Path(__file__).resolve().parent / "投资环境一览.CSV"
 
 
 def init_db() -> dict:
     """启动时初始化数据库。
 
     - 建表（如不存在）
-    - 从 CSV 更新词缀表（静态数据，安全更新）
+    - 从 CSV 更新词缀表和投资环境表（静态数据，安全更新）
     - 检查 active 对局，有则保留不动
-    - 返回 {"affixes": N, "active_game": id|None}
+    - 返回 {"affixes": N, "investments": N, "active_game": id|None}
     """
     with _conn() as c:
-        # 建表
         c.execute("""CREATE TABLE IF NOT EXISTS affixes (
             id INTEGER PRIMARY KEY,
             name TEXT UNIQUE NOT NULL,
             description TEXT,
             category TEXT
+        )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS investments (
+            id INTEGER PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            effect TEXT,
+            characters TEXT,
+            equipment TEXT
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS games (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,14 +52,13 @@ def init_db() -> dict:
         )""")
         c.commit()
 
-    # 词缀表从 CSV 更新（静态数据，不影响对局）
     affix_count = _update_affixes_from_csv()
+    invest_count = _update_investments_from_csv()
 
-    # 检查 active 对局（不动）
     active = get_active_game()
     active_id = active["id"] if active else None
 
-    return {"affixes": affix_count, "active_game": active_id}
+    return {"affixes": affix_count, "investments": invest_count, "active_game": active_id}
 
 
 def _update_affixes_from_csv() -> int:
@@ -71,6 +77,22 @@ def _update_affixes_from_csv() -> int:
                 )
         c.commit()
         return c.execute("SELECT COUNT(*) FROM affixes").fetchone()[0]
+
+
+def _update_investments_from_csv() -> int:
+    """从 CSV 更新投资环境表（INSERT OR REPLACE，不 DROP）。"""
+    import csv
+    if not INVEST_CSV_PATH.exists():
+        return 0
+    with _conn() as c:
+        with open(INVEST_CSV_PATH, "r", encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                c.execute(
+                    "INSERT OR REPLACE INTO investments (name, effect, characters, equipment) VALUES (?, ?, ?, ?)",
+                    (r["名称"], r["效果"], r.get("角色", ""), r.get("装备", "")),
+                )
+        c.commit()
+        return c.execute("SELECT COUNT(*) FROM investments").fetchone()[0]
 
 
 def _conn() -> sqlite3.Connection:
@@ -113,6 +135,51 @@ def get_affixes_by_names(names: list[str]) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             f"SELECT * FROM affixes WHERE name IN ({placeholders})", names
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── 投资环境查询 ──────────────────────────────────────────────────
+
+def get_investment(name: str) -> dict | None:
+    """查单个投资环境的完整信息。"""
+    with _conn() as c:
+        row = c.execute("SELECT * FROM investments WHERE name = ?", (name,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_investment_effect(name: str) -> str | None:
+    """只查投资环境效果文本。"""
+    with _conn() as c:
+        row = c.execute("SELECT effect FROM investments WHERE name = ?", (name,)).fetchone()
+    return row["effect"] if row else None
+
+
+def list_investments() -> list[dict]:
+    """列出所有投资环境。"""
+    with _conn() as c:
+        rows = c.execute("SELECT * FROM investments ORDER BY name").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_investments_by_names(names: list[str]) -> list[dict]:
+    """批量查投资环境。"""
+    if not names:
+        return []
+    placeholders = ",".join("?" * len(names))
+    with _conn() as c:
+        rows = c.execute(
+            f"SELECT * FROM investments WHERE name IN ({placeholders})", names
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def search_investments(keyword: str) -> list[dict]:
+    """按关键词搜索投资环境（名称或效果中包含关键词）。"""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM investments WHERE name LIKE ? OR effect LIKE ?",
+            (f"%{keyword}%", f"%{keyword}%"),
         ).fetchall()
     return [dict(r) for r in rows]
 

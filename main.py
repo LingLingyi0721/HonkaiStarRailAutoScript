@@ -67,10 +67,10 @@ def main() -> int:
         from tools.ensure_tools import ensure_all
         ensure_all()
 
-    # 数据库初始化（建表 + 更新词缀 + 保留 active 对局）
+    # 数据库初始化（建表 + 更新静态数据 + 保留 active 对局）
     from data.db import init_db
     db_info = init_db()
-    print(f"db init: affixes={db_info['affixes']}, active_game={db_info['active_game']}")
+    print(f"db init: affixes={db_info['affixes']}, investments={db_info['investments']}, active_game={db_info['active_game']}")
     if db_info['active_game']:
         print(f"  [WARN] detected unfinished game id={db_info['active_game']}, data preserved")
 
