@@ -61,6 +61,14 @@ START_BATTLE_TAP = (1087, 642)
 NEXT_STEP_AREA = (970, 648, 1035, 668)
 NEXT_STEP_TAP = (1002, 658)
 
+# 第一位面过渡界面（图形匹配 + OCR"点击空白处继续"）
+DIM1_TRANSITION_AREA = (168, 558, 204, 594)
+DIM1_CONTINUE_KEYWORDS = [
+    {"keyword": "空白", "area": (550, 630, 740, 680)},
+    {"keyword": "继续", "area": (550, 630, 740, 680)},
+]
+DIM1_CONTINUE_TAP = (645, 655)
+
 # 当前局难度信息（段位+层级），供决策层AI使用
 CURRENT_RANK_LEVEL: str | None = None
 
@@ -217,6 +225,23 @@ def run(target_rank_level: str | None = None) -> int:
     ):
         return 1
     tap(log, *NEXT_STEP_TAP)
+    time.sleep(2.0)
+
+    # ── 10. 第一位面过渡：图形匹配确认界面 → OCR检测"点击空白处继续" → 点击 ──
+    log.info("stage 10: wait dim1 transition")
+    if not proceed_to_next(
+        log, None, None, "dim1_transition",
+        cache_path=CACHE_SCREENSHOT,
+        template=("ui", DIM1_TRANSITION_AREA),
+    ):
+        return 1
+    log.info("stage 10b: wait continue text")
+    if not proceed_to_next(
+        log, DIM1_CONTINUE_KEYWORDS, None, "dim1_continue",
+        cache_path=CACHE_SCREENSHOT,
+    ):
+        return 1
+    tap(log, *DIM1_CONTINUE_TAP)
     time.sleep(2.0)
 
     log.info(f"done: {time.time() - start_time:.1f}s")
