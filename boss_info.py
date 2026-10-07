@@ -389,4 +389,17 @@ def run() -> int:
     }
     save_output(log, "boss_info", output_data)
 
+    # ── 入库 ──
+    from data.db import update_active_game
+    game_id = update_active_game(
+        rank=rank_info["rank"] if rank_info else None,
+        level=rank_info["level"] if rank_info else None,
+        dimension1=dim_info.get("dimension1", ""),
+        dimension2=dim_info.get("dimension2", ""),
+        dimension3=dim_info.get("dimension3", ""),
+        difficulty=difficulty,
+        affixes=affixes,
+    )
+    log.info(f"db: game_id={game_id}")
+
     return 0

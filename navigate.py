@@ -94,6 +94,11 @@ def run(target_rank_level: str | None = None) -> int:
         log.error(f"device connect failed: {e}")
         return 1
 
+    # 新对局开始：作废旧数据
+    from data.db import start_new_game
+    start_new_game()
+    log.info("db: new game started, old active records abandoned")
+
     start_time = time.time()
 
     # ── 1. 等待登录界面（持续识别，超时120秒）→ 点击屏幕中央 ──

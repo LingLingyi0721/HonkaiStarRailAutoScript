@@ -83,6 +83,23 @@ def get_affixes_by_names(names: list[str]) -> list[dict]:
 
 # ── 对局记录 ──────────────────────────────────────────────────────
 
+def _ensure_games_table():
+    """确保 games 表有 status 列（兼容旧库）。"""
+    with _conn() as c:
+        cols = [r[1] for r in c.execute("PRAGMA table_info(games)").fetchall()]
+        if "status" not in cols:
+            c.execute("ALTER TABLE games ADD COLUMN status TEXT DEFAULT 'active'")
+            c.commit()
+
+
+def start_new_game() -> None:
+    """新对局开始：把所有 active 记录标记为 abandoned。"""
+    _ensure_games_table()
+    with _conn() as c:
+        c.execute("UPDATE games SET status = 'abandoned' WHERE status = 'active'")
+        c.commit()
+
+
 def save_game(
     rank: str | None = None,
     level: str | None = None,
@@ -92,23 +109,85 @@ def save_game(
     difficulty: str | None = None,
     affixes: list[str] | None = None,
     result: str | None = None,
+    status: str = "active",
 ) -> int:
     """写入一条对局记录，返回 id。"""
+    _ensure_games_table()
     with _conn() as c:
         cur = c.execute(
             """INSERT INTO games
-            (timestamp, rank, level, dimension1, dimension2, dimension3, difficulty, affixes, result)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (timestamp, rank, level, dimension1, dimension2, dimension3, difficulty, affixes, result, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 time.strftime("%Y-%m-%d %H:%M:%S"),
                 rank, level, dimension1, dimension2, dimension3,
                 difficulty,
                 json.dumps(affixes or [], ensure_ascii=False),
                 result,
+                status,
             ),
         )
         c.commit()
     return cur.lastrowid
+
+
+def update_active_game(
+    rank: str | None = None,
+    level: str | None = None,
+    dimension1: str = "",
+    dimension2: str = "",
+    dimension3: str = "",
+    difficulty: str | None = None,
+    affixes: list[str] | None = None,
+    result: str | None = None,
+) -> int | None:
+    """更新当前 active 对局的数据。没有 active 对局则新建一条。"""
+    _ensure_games_table()
+    with _conn() as c:
+        row = c.execute("SELECT id FROM games WHERE status = 'active' ORDER BY id DESC LIMIT 1").fetchone()
+        if row:
+            game_id = row["id"]
+            sets = []
+            params = []
+            for col, val in [("rank", rank), ("level", level), ("dimension1", dimension1),
+                             ("dimension2", dimension2), ("dimension3", dimension3),
+                             ("difficulty", difficulty), ("result", result)]:
+                if val is not None:
+                    sets.append(f"{col} = ?")
+                    params.append(val)
+            if affixes is not None:
+                sets.append("affixes = ?")
+                params.append(json.dumps(affixes, ensure_ascii=False))
+            if sets:
+                params.append(game_id)
+                c.execute(f"UPDATE games SET {', '.join(sets)} WHERE id = ?", params)
+                c.commit()
+            return game_id
+        else:
+            return save_game(rank=rank, level=level, dimension1=dimension1,
+                             dimension2=dimension2, dimension3=dimension3,
+                             difficulty=difficulty, affixes=affixes, result=result)
+
+
+def complete_active_game(result: str = "completed") -> None:
+    """对局结束：把 active 记录标记为 completed。"""
+    _ensure_games_table()
+    with _conn() as c:
+        c.execute("UPDATE games SET status = ?, result = ? WHERE status = 'active'",
+                  (result, result))
+        c.commit()
+
+
+def get_active_game() -> dict | None:
+    """查当前 active 对局。"""
+    _ensure_games_table()
+    with _conn() as c:
+        row = c.execute("SELECT * FROM games WHERE status = 'active' ORDER BY id DESC LIMIT 1").fetchone()
+    if row:
+        d = dict(row)
+        d["affixes"] = json.loads(d["affixes"])
+        return d
+    return None
 
 
 def get_game(game_id: int) -> dict | None:
