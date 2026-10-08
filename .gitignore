@@ -37,4 +37,5 @@ snap_rank.py
 bench_device.py
 
 #动态数据库
+game.db
 *.db
