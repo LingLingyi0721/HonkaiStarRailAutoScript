@@ -21,6 +21,7 @@ STAGES = [
     ("launch",    "launch game",     "launch"),
     ("navigate",  "navigate to war", "navigate"),
     ("boss_info", "boss info",       "boss_info"),
+    ("gameplay",  "in-game actions", "gameplay"),
     # ("settle",  "settle & loop",   "settle"),
 ]
 
