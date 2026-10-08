@@ -13,6 +13,7 @@ from pathlib import Path
 DB_PATH = Path(__file__).resolve().parent / "game.db"
 AFFIX_CSV_PATH = Path(__file__).resolve().parent / "词缀描述数据库.CSV"
 INVEST_CSV_PATH = Path(__file__).resolve().parent / "投资环境一览.CSV"
+CHARACTER_CSV_PATH = Path(__file__).resolve().parent / "角色详情.CSV"
 
 
 def init_db() -> dict:
@@ -50,15 +51,32 @@ def init_db() -> dict:
             result TEXT,
             status TEXT DEFAULT 'active'
         )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS characters (
+            name TEXT PRIMARY KEY,
+            cost INTEGER,
+            position TEXT,
+            role TEXT,
+            bonds TEXT,
+            skills TEXT,
+            recommended_equips TEXT,
+            hp_growth TEXT,
+            front_power TEXT,
+            back_power TEXT,
+            speed_growth TEXT,
+            heal_power TEXT,
+            shield_power TEXT
+        )""")
         c.commit()
 
     affix_count = _update_affixes_from_csv()
     invest_count = _update_investments_from_csv()
+    char_count = _update_characters_from_csv()
 
     active = get_active_game()
     active_id = active["id"] if active else None
 
-    return {"affixes": affix_count, "investments": invest_count, "active_game": active_id}
+    return {"affixes": affix_count, "investments": invest_count,
+            "characters": char_count, "active_game": active_id}
 
 
 def _update_affixes_from_csv() -> int:
@@ -93,6 +111,39 @@ def _update_investments_from_csv() -> int:
                 )
         c.commit()
         return c.execute("SELECT COUNT(*) FROM investments").fetchone()[0]
+
+
+def _update_characters_from_csv() -> int:
+    """从 CSV 更新角色表（INSERT OR REPLACE，不 DROP）。"""
+    import csv
+    if not CHARACTER_CSV_PATH.exists():
+        return 0
+    with _conn() as c:
+        with open(CHARACTER_CSV_PATH, "r", encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                c.execute(
+                    """INSERT OR REPLACE INTO characters
+                    (name, cost, position, role, bonds, skills, recommended_equips,
+                     hp_growth, front_power, back_power, speed_growth, heal_power, shield_power)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        r["名称"],
+                        int(r["费用"]) if r["费用"].strip() else None,
+                        r["站位"],
+                        r["定位"],
+                        r["羁绊"],
+                        r["技能"],
+                        r["推荐装备"],
+                        r["生命增幅"],
+                        r["基础前台强度"],
+                        r["基础后台强度"],
+                        r["速度增幅"],
+                        r["基础治疗强度"],
+                        r["基础护盾强度"],
+                    ),
+                )
+        c.commit()
+        return c.execute("SELECT COUNT(*) FROM characters").fetchone()[0]
 
 
 def _conn() -> sqlite3.Connection:
@@ -181,6 +232,52 @@ def search_investments(keyword: str) -> list[dict]:
             "SELECT * FROM investments WHERE name LIKE ? OR effect LIKE ?",
             (f"%{keyword}%", f"%{keyword}%"),
         ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── 角色查询 ──────────────────────────────────────────────────────
+
+def get_character(name: str) -> dict | None:
+    """查单个角色的完整信息。"""
+    with _conn() as c:
+        row = c.execute("SELECT * FROM characters WHERE name = ?", (name,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_characters(role: str | None = None, position: str | None = None) -> list[dict]:
+    """列出所有角色，可按定位/站位筛选。"""
+    with _conn() as c:
+        query = "SELECT * FROM characters"
+        conditions = []
+        params = []
+        if role:
+            conditions.append("role LIKE ?")
+            params.append(f"%{role}%")
+        if position:
+            conditions.append("position = ?")
+            params.append(position)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY cost, name"
+        rows = c.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def search_characters(keyword: str) -> list[dict]:
+    """按关键词搜索角色（名称/技能/定位中包含关键词）。"""
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM characters WHERE
+            name LIKE ? OR skills LIKE ? OR role LIKE ? OR bonds LIKE ?""",
+            (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_characters_by_cost(cost: int) -> list[dict]:
+    """按费用查角色。"""
+    with _conn() as c:
+        rows = c.execute("SELECT * FROM characters WHERE cost = ? ORDER BY name", (cost,)).fetchall()
     return [dict(r) for r in rows]
 
 
