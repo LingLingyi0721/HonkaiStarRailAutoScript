@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import sqlite3
 import time
@@ -14,6 +15,10 @@ DB_PATH = Path(__file__).resolve().parent / "game.db"
 AFFIX_CSV_PATH = Path(__file__).resolve().parent / "词缀描述数据库.CSV"
 INVEST_CSV_PATH = Path(__file__).resolve().parent / "投资环境一览.CSV"
 CHARACTER_CSV_PATH = Path(__file__).resolve().parent / "角色详情.CSV"
+STRATEGY_CSV_PATH = Path(__file__).resolve().parent / "投资策略.CSV"
+BOND_CSV_PATH = Path(__file__).resolve().parent / "羁绊.CSV"
+EQUIPMENT_CSV_PATH = Path(__file__).resolve().parent / "装备.CSV"
+COMPETITOR_CSV_PATH = Path(__file__).resolve().parent / "竞争对手.CSV"
 
 
 def init_db() -> dict:
@@ -66,17 +71,55 @@ def init_db() -> dict:
             heal_power TEXT,
             shield_power TEXT
         )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS strategies (
+            name TEXT PRIMARY KEY,
+            rarity TEXT,
+            effect TEXT,
+            dimension TEXT
+        )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS bonds (
+            name TEXT PRIMARY KEY,
+            type TEXT,
+            min_count INTEGER,
+            max_count INTEGER,
+            version TEXT,
+            base_effect TEXT,
+            graded_effect TEXT,
+            members TEXT
+        )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS equipments (
+            name TEXT PRIMARY KEY,
+            type TEXT,
+            tag TEXT,
+            base_attr TEXT,
+            description TEXT,
+            source TEXT,
+            version TEXT,
+            compatible_chars TEXT
+        )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS competitors (
+            name TEXT PRIMARY KEY,
+            boss TEXT,
+            elite_enemies TEXT,
+            normal_enemies TEXT
+        )""")
         c.commit()
 
     affix_count = _update_affixes_from_csv()
     invest_count = _update_investments_from_csv()
     char_count = _update_characters_from_csv()
+    strategy_count = _update_strategies_from_csv()
+    bond_count = _update_bonds_from_csv()
+    equip_count = _update_equipments_from_csv()
+    competitor_count = _update_competitors_from_csv()
 
     active = get_active_game()
     active_id = active["id"] if active else None
 
     return {"affixes": affix_count, "investments": invest_count,
-            "characters": char_count, "active_game": active_id}
+            "characters": char_count, "strategies": strategy_count,
+            "bonds": bond_count, "equipments": equip_count,
+            "competitors": competitor_count, "active_game": active_id}
 
 
 def _update_affixes_from_csv() -> int:
@@ -144,6 +187,74 @@ def _update_characters_from_csv() -> int:
                 )
         c.commit()
         return c.execute("SELECT COUNT(*) FROM characters").fetchone()[0]
+
+
+def _update_strategies_from_csv() -> int:
+    if not STRATEGY_CSV_PATH.exists():
+        return 0
+    with _conn() as c:
+        with open(STRATEGY_CSV_PATH, "r", encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                c.execute(
+                    "INSERT OR REPLACE INTO strategies (name, rarity, effect, dimension) VALUES (?, ?, ?, ?)",
+                    (r["名字"], r["稀有度"], r["内容"], r["出现位面"]),
+                )
+        c.commit()
+        return c.execute("SELECT COUNT(*) FROM strategies").fetchone()[0]
+
+
+def _update_bonds_from_csv() -> int:
+    if not BOND_CSV_PATH.exists():
+        return 0
+    with _conn() as c:
+        with open(BOND_CSV_PATH, "r", encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                c.execute(
+                    """INSERT OR REPLACE INTO bonds
+                    (name, type, min_count, max_count, version, base_effect, graded_effect, members)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        r["羁绊名称"], r["类型"],
+                        int(r["最低触发人数"]) if r["最低触发人数"].strip() else None,
+                        int(r["最高触发人数"]) if r["最高触发人数"].strip() else None,
+                        r["实装版本"], r["基础效果"], r["分级效果"], r["羁绊成员"],
+                    ),
+                )
+        c.commit()
+        return c.execute("SELECT COUNT(*) FROM bonds").fetchone()[0]
+
+
+def _update_equipments_from_csv() -> int:
+    if not EQUIPMENT_CSV_PATH.exists():
+        return 0
+    with _conn() as c:
+        with open(EQUIPMENT_CSV_PATH, "r", encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                c.execute(
+                    """INSERT OR REPLACE INTO equipments
+                    (name, type, tag, base_attr, description, source, version, compatible_chars)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        r["名称"], r["类型"], r["标签"], r["基础属性"],
+                        r["描述"], r["获取途径"], r["版本"], r["适配角色"],
+                    ),
+                )
+        c.commit()
+        return c.execute("SELECT COUNT(*) FROM equipments").fetchone()[0]
+
+
+def _update_competitors_from_csv() -> int:
+    if not COMPETITOR_CSV_PATH.exists():
+        return 0
+    with _conn() as c:
+        with open(COMPETITOR_CSV_PATH, "r", encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                c.execute(
+                    "INSERT OR REPLACE INTO competitors (name, boss, elite_enemies, normal_enemies) VALUES (?, ?, ?, ?)",
+                    (r["名称"], r["首领"], r["精英敌人"], r["普通敌人"]),
+                )
+        c.commit()
+        return c.execute("SELECT COUNT(*) FROM competitors").fetchone()[0]
 
 
 def _conn() -> sqlite3.Connection:
@@ -278,6 +389,106 @@ def get_characters_by_cost(cost: int) -> list[dict]:
     """按费用查角色。"""
     with _conn() as c:
         rows = c.execute("SELECT * FROM characters WHERE cost = ? ORDER BY name", (cost,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── 投资策略查询 ──────────────────────────────────────────────────
+
+def get_strategy(name: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM strategies WHERE name = ?", (name,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_strategies(rarity: str | None = None, dimension: str | None = None) -> list[dict]:
+    with _conn() as c:
+        query = "SELECT * FROM strategies"
+        conditions, params = [], []
+        if rarity:
+            conditions.append("rarity = ?")
+            params.append(rarity)
+        if dimension:
+            conditions.append("dimension LIKE ?")
+            params.append(f"%{dimension}%")
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY rarity, name"
+        rows = c.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def search_strategies(keyword: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM strategies WHERE name LIKE ? OR effect LIKE ?",
+            (f"%{keyword}%", f"%{keyword}%"),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── 羁绊查询 ──────────────────────────────────────────────────────
+
+def get_bond(name: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM bonds WHERE name = ?", (name,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_bonds(bond_type: str | None = None) -> list[dict]:
+    with _conn() as c:
+        if bond_type:
+            rows = c.execute("SELECT * FROM bonds WHERE type = ? ORDER BY name", (bond_type,)).fetchall()
+        else:
+            rows = c.execute("SELECT * FROM bonds ORDER BY type, name").fetchall()
+    return [dict(r) for r in rows]
+
+
+def search_bonds(keyword: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM bonds WHERE name LIKE ? OR base_effect LIKE ? OR members LIKE ?",
+            (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── 装备查询 ──────────────────────────────────────────────────────
+
+def get_equipment(name: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM equipments WHERE name = ?", (name,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_equipments(equip_type: str | None = None) -> list[dict]:
+    with _conn() as c:
+        if equip_type:
+            rows = c.execute("SELECT * FROM equipments WHERE type = ? ORDER BY name", (equip_type,)).fetchall()
+        else:
+            rows = c.execute("SELECT * FROM equipments ORDER BY type, name").fetchall()
+    return [dict(r) for r in rows]
+
+
+def search_equipments(keyword: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM equipments WHERE name LIKE ? OR description LIKE ? OR compatible_chars LIKE ?",
+            (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── 竞争对手查询 ──────────────────────────────────────────────────
+
+def get_competitor(name: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM competitors WHERE name = ?", (name,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_competitors() -> list[dict]:
+    with _conn() as c:
+        rows = c.execute("SELECT * FROM competitors ORDER BY name").fetchall()
     return [dict(r) for r in rows]
 
 
