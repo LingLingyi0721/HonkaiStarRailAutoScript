@@ -58,7 +58,7 @@ def init_db() -> dict:
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS characters (
             name TEXT PRIMARY KEY,
-            cost INTEGER,
+            cost TEXT,
             position TEXT,
             role TEXT,
             bonds TEXT,
@@ -168,7 +168,7 @@ def _update_characters_from_csv() -> int:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         r["名称"],
-                        int(r["费用"]) if r["费用"].strip() else None,
+                        r["费用"].strip() or None,
                         r["站位"],
                         r["定位"],
                         r["羁绊"],
@@ -380,10 +380,14 @@ def search_characters(keyword: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_characters_by_cost(cost: int) -> list[dict]:
-    """按费用查角色。"""
+def get_characters_by_cost(cost: int | str) -> list[dict]:
+    """按费用查角色，支持多费用角色（如 '3/4/5'）。"""
+    cost_str = str(cost)
     with _conn() as c:
-        rows = c.execute("SELECT * FROM characters WHERE cost = ? ORDER BY name", (cost,)).fetchall()
+        rows = c.execute(
+            "SELECT * FROM characters WHERE cost = ? OR '/' || cost || '/' LIKE ? ORDER BY name",
+            (cost_str, f'%/{cost_str}/%'),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
