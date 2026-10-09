@@ -80,9 +80,7 @@ def init_db() -> dict:
         c.execute("""CREATE TABLE IF NOT EXISTS bonds (
             name TEXT PRIMARY KEY,
             type TEXT,
-            min_count INTEGER,
-            max_count INTEGER,
-            version TEXT,
+            trigger_counts TEXT,
             base_effect TEXT,
             graded_effect TEXT,
             members TEXT
@@ -94,7 +92,6 @@ def init_db() -> dict:
             base_attr TEXT,
             description TEXT,
             source TEXT,
-            version TEXT,
             compatible_chars TEXT
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS competitors (
@@ -211,13 +208,11 @@ def _update_bonds_from_csv() -> int:
             for r in csv.DictReader(f):
                 c.execute(
                     """INSERT OR REPLACE INTO bonds
-                    (name, type, min_count, max_count, version, base_effect, graded_effect, members)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (name, type, trigger_counts, base_effect, graded_effect, members)
+                    VALUES (?, ?, ?, ?, ?, ?)""",
                     (
-                        r["羁绊名称"], r["类型"],
-                        int(r["最低触发人数"]) if r["最低触发人数"].strip() else None,
-                        int(r["最高触发人数"]) if r["最高触发人数"].strip() else None,
-                        r["实装版本"], r["基础效果"], r["分级效果"], r["羁绊成员"],
+                        r["羁绊名称"], r["类型"], r["触发人数"],
+                        r["基础效果"], r["分级效果"], r["羁绊成员"],
                     ),
                 )
         c.commit()
@@ -232,11 +227,11 @@ def _update_equipments_from_csv() -> int:
             for r in csv.DictReader(f):
                 c.execute(
                     """INSERT OR REPLACE INTO equipments
-                    (name, type, tag, base_attr, description, source, version, compatible_chars)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (name, type, tag, base_attr, description, source, compatible_chars)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (
                         r["名称"], r["类型"], r["标签"], r["基础属性"],
-                        r["描述"], r["获取途径"], r["版本"], r["适配角色"],
+                        r["描述"], r["获取途径"], r["适配角色"],
                     ),
                 )
         c.commit()
