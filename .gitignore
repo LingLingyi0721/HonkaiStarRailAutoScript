@@ -39,3 +39,5 @@ bench_device.py
 #动态数据库
 game.db
 *.db
+# 任务跟踪文件
+TASK.md
