@@ -9,7 +9,8 @@ build/
 # 临时文件
 tmp/
 *.tmp
-
+# 临时测试
+.cache
 # 日志
 log/
 
@@ -36,7 +37,7 @@ snap.py
 snap_rank.py
 bench_device.py
 
-#动态数据库
+# 动态数据库
 game.db
 *.db
 # 任务跟踪文件
