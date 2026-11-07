@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import cv2
@@ -203,6 +204,44 @@ def check_template(log: logging.Logger, image: np.ndarray,
     return False
 
 
+def check_template_by_name(
+    log: logging.Logger,
+    image: np.ndarray,
+    name: str,
+    category: str,
+    area: tuple[int, int, int, int],
+    similarity: float = 0.80,
+) -> bool:
+    """按名字精确匹配指定模板，不做同类遍历。
+
+    与 check_template 的区别：check_template 遍历整个 category 取最佳，
+    本函数只比对指定的那一个模板，用于需要区分同类中具体是哪一个的场景
+    （如 navigate 下的 mode 与 mode_continue）。
+
+    Args:
+        name: 模板文件名（不含 .png）
+        category: image/ 下的子目录名
+        area: 搜索区域
+        similarity: 命中阈值
+    """
+    from perception.templates import template_lib
+    from perception.matcher import template_match
+
+    template_lib.reload()
+    template = template_lib.categories.get(category, {}).get(name)
+    if template is None:
+        log.warning(f"template missing: {category}/{name}.png")
+        return False
+
+    sim, _ = template_match(template, image, area=area, similarity=0.0)
+    log.info(f"check {name}: sim={sim:.4f} area={area}")
+    if sim >= similarity:
+        log.info(f"check {name}: found sim={sim:.2f}")
+        return True
+    log.info(f"check {name}: not found sim={sim:.2f}")
+    return False
+
+
 # ── 通用兜底机制 ───────────────────────────────────────────────────
 
 def _capture_corner(log: logging.Logger) -> np.ndarray | None:
@@ -245,10 +284,14 @@ def proceed_to_next(
     max_rounds: int = 3,
     timeout: float | None = None,
     template: tuple[str, tuple[int, int, int, int]] | None = None,
+    probe: Callable[[np.ndarray], bool] | None = None,
 ) -> bool:
     """等待目标界面出现，未出现则点击推进并检测界面切换。
 
-    template 不为 None 时用图片模板匹配（category, area），否则用 OCR 关键词。
+    检测方式三选一，优先级 probe > template > 关键词：
+    - probe: 调用方自定义检测函数，返回 True 表示命中（用于需区分多候选标的场景）
+    - template: 图片模板匹配 (category, area)
+    - next_keywords: OCR 关键词
 
     timeout 不为 None 时进入持续识别模式：每 interval 秒识别一次，
     直到命中或累计超时，不点击、不检测切换（用于启动/加载阶段）。
@@ -260,6 +303,8 @@ def proceed_to_next(
     - detect_switch=False（"点击进入"阶段）只重复识别，不点击
     """
     def _check(image: np.ndarray) -> bool:
+        if probe is not None:
+            return probe(image)
         if template is not None:
             return check_template(log, image, template[0], template[1], obj_id)
         return check_keywords(log, image, next_keywords, obj_id)

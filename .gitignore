@@ -37,8 +37,8 @@ snap.py
 snap_rank.py
 bench_device.py
 
-# 动态数据库
-game.db
+# 动态数据（运行时生成，不入库）
 *.db
+data/games.json
 # 任务跟踪文件
 TASK.md

@@ -4,7 +4,7 @@
 输出：段位层级、三位面、敌人难度、词条 → output/boss_info.json
 引擎：RapidOCR（全屏识别）+ ddddocr（数字）
 
-本模块只被 navigate.py 调用，不独立运行。
+本模块只被 rank.py 调用，不独立运行。
 """
 
 from __future__ import annotations
@@ -307,7 +307,7 @@ def get_affixes(image: np.ndarray, expected_count: int | None = None) -> list[st
 # ── 主流程 ─────────────────────────────────────────────────────────
 
 def run() -> int:
-    """识别 BOSS 信息。只被 navigate.py 调用。"""
+    """识别 BOSS 信息。只被 rank.py 调用。"""
     log.info("boss_info start")
 
     image = screenshot(log, CACHE_SCREENSHOT)
@@ -315,25 +315,25 @@ def run() -> int:
         log.error("screenshot failed")
         return 1
 
-    # ── 1. 段位和层级（从 navigate 获取）──
+    # ── 1. 段位和层级（从 rank 阶段获取）──
     log.info("step1: rank & level")
 
     rank_info = None
     try:
-        import navigate
-        if navigate.CURRENT_RANK_LEVEL:
-            combined = navigate.CURRENT_RANK_LEVEL
+        import rank
+        if rank.CURRENT_RANK_LEVEL:
+            combined = rank.CURRENT_RANK_LEVEL
             if "-" in combined:
                 rank_name, level_text = combined.split("-", 1)
             else:
                 rank_name, level_text = combined, None
             rank_info = {"rank": rank_name, "level": level_text, "combined": combined}
-            log.info(f"rank from navigate: {combined}")
+            log.info(f"rank stage: {combined}")
     except (ImportError, AttributeError):
         pass
 
     if rank_info is None:
-        log.warning("rank not available from navigate, skip")
+        log.warning("rank not available from rank stage, skip")
 
     # ── 2. RapidOCR 全屏识别 ──
 

@@ -1,15 +1,34 @@
-"""启动游戏 app。仅管理 adb 连接和 am start，其余交给 navigate.py。"""
+"""启动游戏 app 并进入主界面。
+
+阶段范围：adb 启动 app → 等待登录界面 → 点击进入 → 等待游戏主界面。
+后续（指南起）交给 navigate.py。
+"""
 
 from __future__ import annotations
 
 import sys
+import time
+from pathlib import Path
 
-from common import setup_logging, ensure_device
+from common import setup_logging, ensure_device, tap, proceed_to_next
 
 # ── 配置 ────────────────────────────────────────────────────────────
 
 PACKAGE = "com.miHoYo.hkrpg"
 ACTIVITY = "com.mihoyo.combosdk.ComboSDKActivity"
+
+CACHE_SCREENSHOT = Path("tmp/launch_screenshot.png")
+
+# 登录界面
+LOGIN_KEYWORDS = [
+    {"keyword": "点击进入", "area": (450, 450, 810, 700)},
+]
+SCREEN_CENTER = (640, 360)
+
+# 游戏主界面
+GAME_KEYWORDS = [
+    {"keyword": "状态效果", "area": (1150, 100, 1235, 125)},
+]
 
 log = setup_logging("launch")
 
@@ -60,7 +79,25 @@ def run() -> int:
         log.error(f"app launch failed: {e}")
         return 1
 
-    log.info("launch done")
+    # ── 1. 等待登录界面（持续识别，超时120秒）→ 点击屏幕中央 ──
+    log.info("stage 1: wait login")
+    if not proceed_to_next(
+        log, LOGIN_KEYWORDS, None, "login",
+        cache_path=CACHE_SCREENSHOT, timeout=120,
+    ):
+        return 1
+    tap(log, *SCREEN_CENTER)
+    time.sleep(2.0)
+
+    # ── 2. 等待游戏主界面（持续识别，超时120秒）──
+    log.info("stage 2: wait main")
+    if not proceed_to_next(
+        log, GAME_KEYWORDS, None, "main",
+        cache_path=CACHE_SCREENSHOT, timeout=120,
+    ):
+        return 1
+
+    log.info("launch done: at main screen")
     return 0
 
 

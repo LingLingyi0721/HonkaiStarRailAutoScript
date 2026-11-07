@@ -1,10 +1,17 @@
 """编排层：按顺序调度各阶段脚本。
 
+阶段划分：
+    launch   启动 app → 登录 → 主界面
+    navigate 指南 → 模式选择（判定「进入标准博弈」/「继续对局」）
+    rank     标准博弈难度选择 → BOSS 阵营与本局词条记录
+    title    第一位面过渡 → 投资环境选择
+    prepare  备战阶段（未实现）
+
 用法：
-    python main.py              # 全部阶段
-    python main.py --from guide # 从指定阶段开始
-    python main.py --only launch # 只跑单个阶段
-    python main.py --rank A8-10  # 指定目标段位层级
+    python main.py                    # 全部阶段
+    python main.py --from navigate    # 从指定阶段开始
+    python main.py --only launch      # 只跑单个阶段
+    python main.py --rank A8-10       # 指定目标段位层级
 """
 
 from __future__ import annotations
@@ -18,11 +25,11 @@ from pathlib import Path
 # ── 阶段注册 ───────────────────────────────────────────────────────
 
 STAGES = [
-    ("launch",    "launch game",     "launch"),
-    ("navigate",  "navigate to war", "navigate"),
-    ("boss_info", "boss info",       "boss_info"),
-    ("gameplay",  "in-game actions", "gameplay"),
-    # ("settle",  "settle & loop",   "settle"),
+    ("launch",   "launch → main screen",     "launch"),
+    ("navigate", "guide → mode select",      "navigate"),
+    ("rank",     "rank → boss info",         "rank"),
+    ("title",    "dim1 → invest select",     "title"),
+    # ("prepare", "battle prep",             "prepare"),
 ]
 
 
@@ -68,7 +75,7 @@ def main() -> int:
         from tools.ensure_tools import ensure_all
         ensure_all()
 
-    # 数据库初始化（建表 + 更新静态数据 + 保留 active 对局）
+    # 数据库初始化（加载静态数据 + 保留 active 对局）
     from data.db import init_db
     db_info = init_db()
     print(f"db init: affixes={db_info['affixes']}, investments={db_info['investments']}, active_game={db_info['active_game']}")
@@ -105,13 +112,21 @@ def main() -> int:
 
     for name, label, module in stages:
         stage_kwargs = {}
-        if name == "navigate" and args.rank_level:
+        if name == "rank" and args.rank_level:
             stage_kwargs["target_rank_level"] = args.rank_level
         rc = run_stage(name, label, module, **stage_kwargs)
         if rc != 0:
             print(f"\naborted: stage {name} failed")
             print(f"completed: {[n for n, _, _ in stages[:stages.index((name, label, module))]]}")
             return rc
+
+        # navigate 结束：按判定出的模式分支
+        if name == "navigate":
+            import navigate as nav_mod
+            if nav_mod.CURRENT_MODE == "mode_continue":
+                print("\n[WARN] mode_continue: resume-game flow not implemented")
+                print("       see TASK.md — 继续对局流程待实现")
+                return 1
 
     elapsed = time.time() - total_start
     print(f"\nall done: {elapsed:.1f}s")
